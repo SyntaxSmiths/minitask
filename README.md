@@ -1,4 +1,4 @@
-# minitask
+# minitask ![main branch](https://github.com/fneddy/minitask/actions/workflows/rust.yml/badge.svg)
 
 A simple, efficient task management CLI tool written in Rust.
 
