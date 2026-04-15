@@ -35,7 +35,7 @@ minitask edit state TASK-0 done
 
 ## Documentation
 
-For complete command reference, examples, and detailed usage, see [minitask.md](minitask.md).
+For complete command reference, examples, and detailed usage, see [MINITASK.md](MINITASK.md).
 
 ## License
 
