@@ -84,7 +84,7 @@ assert_contains "TASK-0" "$output" "List shows TASK-0"
 assert_contains "TASK-1" "$output" "List shows TASK-1"
 
 # Test 4: Show specific task
-output=$($MINITASK --file "$TEST_FILE" show TASK-0)
+output=$($MINITASK --file "$TEST_FILE" show 0)
 assert_contains "TASK-0" "$output" "Show TASK-0"
 assert_contains "First task" "$output" "Show contains content"
 

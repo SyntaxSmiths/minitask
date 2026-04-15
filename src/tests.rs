@@ -1187,3 +1187,26 @@ fn test_claim_dependency_blocking() {
     fs::remove_file(temp_file).unwrap();
 }
 
+
+
+#[test]
+fn test_normalize_task_id_number() {
+    assert_eq!(normalize_task_id("0"), "TASK-0");
+    assert_eq!(normalize_task_id("1"), "TASK-1");
+    assert_eq!(normalize_task_id("42"), "TASK-42");
+}
+
+#[test]
+fn test_normalize_task_id_already_normalized() {
+    assert_eq!(normalize_task_id("TASK-0"), "TASK-0");
+    assert_eq!(normalize_task_id("TASK-1"), "TASK-1");
+    assert_eq!(normalize_task_id("TASK-42"), "TASK-42");
+}
+
+#[test]
+fn test_normalize_task_id_invalid() {
+    assert_eq!(normalize_task_id("invalid"), "invalid");
+    assert_eq!(normalize_task_id("TASK-"), "TASK-");
+    assert_eq!(normalize_task_id("task-1"), "task-1");
+}
+

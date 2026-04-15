@@ -223,6 +223,23 @@ fn save_tasks<P: AsRef<Path>>(path: P, task_file: &TaskFile) -> io::Result<()> {
     Ok(())
 }
 
+
+
+/// Normalizes a task ID by prepending "TASK-" if only a number is provided
+///
+/// # Arguments
+/// * `id` - The task ID or number
+///
+/// # Returns
+/// * `String` - Normalized task ID (e.g., "1" -> "TASK-1", "TASK-1" -> "TASK-1")
+fn normalize_task_id(id: &str) -> String {
+    if id.parse::<usize>().is_ok() {
+        format!("TASK-{}", id)
+    } else {
+        id.to_string()
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     
@@ -231,6 +248,7 @@ fn main() {
             handle_list(&cli.file, state.as_deref(), epic.as_deref(), verbose, cli.json_out)
         }
         Some(Commands::Show { task_id, verbose }) => {
+            let task_id = normalize_task_id(&task_id);
             handle_show(&cli.file, &task_id, verbose, cli.json_out)
         }
         Some(Commands::New { content }) => {
@@ -239,9 +257,11 @@ fn main() {
         Some(Commands::Edit { edit_command }) => {
             match edit_command {
                 EditCommands::State { task_id, state } => {
+                    let task_id = normalize_task_id(&task_id);
                     handle_edit_state(&cli.file, &task_id, &state, cli.json_out)
                 }
                 EditCommands::Content { task_id, content } => {
+                    let task_id = normalize_task_id(&task_id);
                     handle_edit_content(&cli.file, &task_id, &content, cli.json_out)
                 }
             }
@@ -249,12 +269,16 @@ fn main() {
         Some(Commands::Add { add_command }) => {
             match add_command {
                 AddCommands::Content { task_id, content } => {
+                    let task_id = normalize_task_id(&task_id);
                     handle_add_content(&cli.file, &task_id, &content, cli.json_out)
                 }
                 AddCommands::DependsOn { task_id, depends_on } => {
+                    let task_id = normalize_task_id(&task_id);
+                    let depends_on = normalize_task_id(&depends_on);
                     handle_add_depends_on(&cli.file, &task_id, &depends_on, cli.json_out)
                 }
                 AddCommands::Epic { task_id, epic } => {
+                    let task_id = normalize_task_id(&task_id);
                     handle_add_epic(&cli.file, &task_id, &epic, cli.json_out)
                 }
             }
@@ -262,9 +286,12 @@ fn main() {
         Some(Commands::Del { del_command }) => {
             match del_command {
                 DelCommands::DependsOn { task_id, depends_on } => {
+                    let task_id = normalize_task_id(&task_id);
+                    let depends_on = normalize_task_id(&depends_on);
                     handle_del_depends_on(&cli.file, &task_id, &depends_on, cli.json_out)
                 }
                 DelCommands::Epic { task_id, epic } => {
+                    let task_id = normalize_task_id(&task_id);
                     handle_del_epic(&cli.file, &task_id, &epic, cli.json_out)
                 }
             }
