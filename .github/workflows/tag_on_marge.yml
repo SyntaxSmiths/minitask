@@ -1,0 +1,38 @@
+name: Tag Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: ["main"]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    if: >
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'release')
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Cargo version
+        id: version
+        run: |
+          VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create tag
+        run: |
+          TAG=v${{ steps.version.outputs.version }}
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git tag $TAG
+          git push origin $TAG
