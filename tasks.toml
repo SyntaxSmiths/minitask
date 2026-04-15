@@ -1,6 +1,6 @@
 [[tasks]]
 name = "TASK-0"
-state = "todo"
+state = "done"
 depends_on = []
 epic = []
 content = """
@@ -19,7 +19,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-1"
-state = "todo"
+state = "done"
 depends_on = ["TASK-0"]
 epic = []
 content = """
@@ -39,7 +39,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-2"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -61,7 +61,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-3"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -81,7 +81,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-4"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -103,7 +103,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-5"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -124,7 +124,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-6"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -144,7 +144,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-7"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -164,7 +164,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-8"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -185,7 +185,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-9"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -206,7 +206,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-10"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -227,7 +227,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-11"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -248,7 +248,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-12"
-state = "todo"
+state = "done"
 depends_on = ["TASK-1"]
 epic = []
 content = """
@@ -273,7 +273,7 @@ Done when: all tests pass && code documented"""
 
 [[tasks]]
 name = "TASK-13"
-state = "todo"
+state = "done"
 depends_on = [
     "TASK-2",
     "TASK-3",
