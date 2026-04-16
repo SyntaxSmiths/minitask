@@ -1,13 +1,14 @@
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use file_lock::{FileLock, FileOptions};
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::{self, Read, Seek, Write};
+use std::path::PathBuf;
 
 /// Task management CLI tool
 #[derive(Parser, Debug)]
 #[command(name = "minitask")]
-#[command(about = "A simple task management tool", long_about = None)]
+#[command(about = "A simple task management tool", long_about = None, arg_required_else_help = true)]
 struct Cli {
     /// Output results as JSON
     #[arg(long, global = true)]
@@ -45,7 +46,7 @@ enum Commands {
     Show {
         /// Task ID to show
         task_id: String,
-        
+
         /// Show verbose output
         #[arg(long)]
         verbose: bool,
@@ -175,55 +176,40 @@ struct TaskFile {
     tasks: Vec<Task>,
 }
 
-impl TaskFile {
-    /// Creates a new empty TaskFile
-    fn new() -> Self {
-        Self { tasks: Vec::new() }
-    }
-}
-
 /// Loads tasks from a TOML file. Creates an empty file if it doesn't exist.
 ///
 /// # Arguments
-/// * `path` - Path to the tasks file
+/// * `file` - File handle
 ///
 /// # Returns
 /// * `io::Result<TaskFile>` - The loaded TaskFile or an error
-fn load_tasks<P: AsRef<Path>>(path: P) -> io::Result<TaskFile> {
-    let path = path.as_ref();
-    
-    // If file doesn't exist, create empty tasks file
-    if !path.exists() {
-        let empty_file = TaskFile::new();
-        save_tasks(path, &empty_file)?;
-        return Ok(empty_file);
-    }
-    
+fn load_tasks(file: &mut File) -> io::Result<TaskFile> {
     // Read and parse existing file
-    let content = fs::read_to_string(path)?;
-    let task_file: TaskFile = toml::from_str(&content)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    
+    let mut content = String::new();
+    file.rewind()?;
+    let _ = file.read_to_string(&mut content)?;
+    let task_file: TaskFile =
+        toml::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     Ok(task_file)
 }
 
 /// Saves tasks to a TOML file.
 ///
 /// # Arguments
-/// * `path` - Path to the tasks file
+/// * `file` - file handle
 /// * `task_file` - The TaskFile to save
 ///
 /// # Returns
 /// * `io::Result<()>` - Success or an error
-fn save_tasks<P: AsRef<Path>>(path: P, task_file: &TaskFile) -> io::Result<()> {
+fn save_tasks(file: &mut File, task_file: &TaskFile) -> io::Result<()> {
+    file.rewind()?;
+    file.set_len(0)?;
     let content = toml::to_string_pretty(task_file)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    
-    fs::write(path, content)?;
+
+    file.write_all(content.as_bytes())?;
     Ok(())
 }
-
-
 
 /// Normalizes a task ID by prepending "TASK-" if only a number is provided
 ///
@@ -240,89 +226,116 @@ fn normalize_task_id(id: &str) -> String {
     }
 }
 
-fn main() {
+fn main() -> Result<(), std::io::Error> {
     let cli = Cli::parse();
-    
+
+    let options = FileOptions::new().write(true).read(true).create(true);
+    let mut filelock = FileLock::lock(&cli.file, false, options)?;
+    let mut tasks_file = load_tasks(&mut filelock.file)?;
+
     let result = match cli.command {
-        Some(Commands::List { state, epic, verbose }) => {
-            handle_list(&cli.file, state.as_deref(), epic.as_deref(), verbose, cli.json_out)
-        }
+        Some(Commands::List {
+            state,
+            epic,
+            verbose,
+        }) => handle_list(
+            &mut tasks_file,
+            state.as_deref(),
+            epic.as_deref(),
+            verbose,
+            cli.json_out,
+        ),
         Some(Commands::Show { task_id, verbose }) => {
             let task_id = normalize_task_id(&task_id);
-            handle_show(&cli.file, &task_id, verbose, cli.json_out)
+            handle_show(&mut tasks_file, &task_id, verbose, cli.json_out)
         }
         Some(Commands::New { content }) => {
-            handle_new(&cli.file, &content, cli.json_in, cli.json_out)
+            handle_new(&mut tasks_file, &content, cli.json_in, cli.json_out)
         }
-        Some(Commands::Edit { edit_command }) => {
-            match edit_command {
-                EditCommands::State { task_id, state } => {
-                    let task_id = normalize_task_id(&task_id);
-                    handle_edit_state(&cli.file, &task_id, &state, cli.json_out)
-                }
-                EditCommands::Content { task_id, content } => {
-                    let task_id = normalize_task_id(&task_id);
-                    handle_edit_content(&cli.file, &task_id, &content, cli.json_out)
-                }
+        Some(Commands::Edit { edit_command }) => match edit_command {
+            EditCommands::State { task_id, state } => {
+                let task_id = normalize_task_id(&task_id);
+                handle_edit_state(&mut tasks_file, &task_id, &state, cli.json_out)
             }
-        }
-        Some(Commands::Add { add_command }) => {
-            match add_command {
-                AddCommands::Content { task_id, content } => {
-                    let task_id = normalize_task_id(&task_id);
-                    handle_add_content(&cli.file, &task_id, &content, cli.json_out)
-                }
-                AddCommands::DependsOn { task_id, depends_on } => {
-                    let task_id = normalize_task_id(&task_id);
-                    let depends_on = normalize_task_id(&depends_on);
-                    handle_add_depends_on(&cli.file, &task_id, &depends_on, cli.json_out)
-                }
-                AddCommands::Epic { task_id, epic } => {
-                    let task_id = normalize_task_id(&task_id);
-                    handle_add_epic(&cli.file, &task_id, &epic, cli.json_out)
-                }
+            EditCommands::Content { task_id, content } => {
+                let task_id = normalize_task_id(&task_id);
+                handle_edit_content(&mut tasks_file, &task_id, &content, cli.json_out)
             }
-        }
-        Some(Commands::Del { del_command }) => {
-            match del_command {
-                DelCommands::DependsOn { task_id, depends_on } => {
-                    let task_id = normalize_task_id(&task_id);
-                    let depends_on = normalize_task_id(&depends_on);
-                    handle_del_depends_on(&cli.file, &task_id, &depends_on, cli.json_out)
-                }
-                DelCommands::Epic { task_id, epic } => {
-                    let task_id = normalize_task_id(&task_id);
-                    handle_del_epic(&cli.file, &task_id, &epic, cli.json_out)
-                }
+        },
+        Some(Commands::Add { add_command }) => match add_command {
+            AddCommands::Content { task_id, content } => {
+                let task_id = normalize_task_id(&task_id);
+                handle_add_content(&mut tasks_file, &task_id, &content, cli.json_out)
             }
-        }
-        Some(Commands::Claim { new_state, state, epic }) => {
-            handle_claim(&cli.file, &new_state, &state, epic.as_deref(), cli.json_out)
-        }
+            AddCommands::DependsOn {
+                task_id,
+                depends_on,
+            } => {
+                let task_id = normalize_task_id(&task_id);
+                let depends_on = normalize_task_id(&depends_on);
+                handle_add_depends_on(&mut tasks_file, &task_id, &depends_on, cli.json_out)
+            }
+            AddCommands::Epic { task_id, epic } => {
+                let task_id = normalize_task_id(&task_id);
+                handle_add_epic(&mut tasks_file, &task_id, &epic, cli.json_out)
+            }
+        },
+        Some(Commands::Del { del_command }) => match del_command {
+            DelCommands::DependsOn {
+                task_id,
+                depends_on,
+            } => {
+                let task_id = normalize_task_id(&task_id);
+                let depends_on = normalize_task_id(&depends_on);
+                handle_del_depends_on(&mut tasks_file, &task_id, &depends_on, cli.json_out)
+            }
+            DelCommands::Epic { task_id, epic } => {
+                let task_id = normalize_task_id(&task_id);
+                handle_del_epic(&mut tasks_file, &task_id, &epic, cli.json_out)
+            }
+        },
+        Some(Commands::Claim {
+            new_state,
+            state,
+            epic,
+        }) => handle_claim(
+            &mut tasks_file,
+            &new_state,
+            &state,
+            epic.as_deref(),
+            cli.json_out,
+        ),
         _ => {
-            eprintln!("Command not yet implemented");
+            let _ = Cli::command().print_long_help();
             std::process::exit(1);
         }
     };
-    
-    if let Err(e) = result {
-        eprintln!("Error: {}", e);
-        std::process::exit(1);
+
+    if result.is_ok() {
+        save_tasks(&mut filelock.file, &tasks_file)?;
     }
+    result
 }
 
 /// Handles the show command
-fn handle_show(file_path: &Path, task_id: &str, verbose: bool, json_out: bool) -> io::Result<()> {
-    let task_file = load_tasks(file_path)?;
-    
+fn handle_show(
+    task_file: &mut TaskFile,
+    task_id: &str,
+    verbose: bool,
+    json_out: bool,
+) -> io::Result<()> {
     // Find the task
-    let task = task_file.tasks.iter()
+    let task = task_file
+        .tasks
+        .iter()
         .find(|t| t.name == task_id)
-        .ok_or_else(|| io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("Task '{}' not found", task_id)
-        ))?;
-    
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Task '{}' not found", task_id),
+            )
+        })?;
+
     if json_out {
         let json = serde_json::to_string_pretty(task)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -333,21 +346,19 @@ fn handle_show(file_path: &Path, task_id: &str, verbose: bool, json_out: bool) -
         let first_line = task.content.lines().next().unwrap_or("");
         println!("{}: {}", task.name, first_line);
     }
-    
+
     Ok(())
 }
 
 /// Handles the new command
 fn handle_new(
-    file_path: &Path,
+    task_file: &mut TaskFile,
     content: &str,
     _json_in: bool,
     json_out: bool,
 ) -> io::Result<()> {
     use std::io::Read;
-    
-    let mut task_file = load_tasks(file_path)?;
-    
+
     // Read content from stdin if "-"
     let task_content = if content == "-" {
         let mut buffer = String::new();
@@ -356,19 +367,22 @@ fn handle_new(
     } else {
         content.to_string()
     };
-    
+
     // Generate unique task ID
-    let next_id = task_file.tasks.iter()
+    let next_id = task_file
+        .tasks
+        .iter()
         .filter_map(|t| {
-            t.name.strip_prefix("TASK-")
+            t.name
+                .strip_prefix("TASK-")
                 .and_then(|n| n.parse::<usize>().ok())
         })
         .max()
         .map(|n| n + 1)
         .unwrap_or(0);
-    
+
     let task_name = format!("TASK-{}", next_id);
-    
+
     // Create new task
     let new_task = Task {
         name: task_name.clone(),
@@ -377,10 +391,9 @@ fn handle_new(
         epic: vec![],
         content: task_content,
     };
-    
+
     task_file.tasks.push(new_task.clone());
-    save_tasks(file_path, &task_file)?;
-    
+
     if json_out {
         let json = serde_json::to_string_pretty(&new_task)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -388,32 +401,32 @@ fn handle_new(
     } else {
         println!("Created {}", task_name);
     }
-    
+
     Ok(())
 }
 
 /// Handles the edit state command
 fn handle_edit_state(
-    file_path: &Path,
+    task_file: &mut TaskFile,
     task_id: &str,
     new_state: &str,
     json_out: bool,
 ) -> io::Result<()> {
-    let mut task_file = load_tasks(file_path)?;
-    
     // Find and update the task
-    let task = task_file.tasks.iter_mut()
+    let task = task_file
+        .tasks
+        .iter_mut()
         .find(|t| t.name == task_id)
-        .ok_or_else(|| io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("Task '{}' not found", task_id)
-        ))?;
-    
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Task '{}' not found", task_id),
+            )
+        })?;
+
     task.state = new_state.to_string();
     let updated_task = task.clone();
-    
-    save_tasks(file_path, &task_file)?;
-    
+
     if json_out {
         let json = serde_json::to_string_pretty(&updated_task)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -421,34 +434,32 @@ fn handle_edit_state(
     } else {
         println!("Updated {} state to {}", task_id, new_state);
     }
-    
+
     Ok(())
 }
 
-
-
 /// Handles the edit content command
 fn handle_edit_content(
-    file_path: &Path,
+    task_file: &mut TaskFile,
     task_id: &str,
     new_content: &str,
     json_out: bool,
 ) -> io::Result<()> {
-    let mut task_file = load_tasks(file_path)?;
-    
     // Find and update the task
-    let task = task_file.tasks.iter_mut()
+    let task = task_file
+        .tasks
+        .iter_mut()
         .find(|t| t.name == task_id)
-        .ok_or_else(|| io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("Task '{}' not found", task_id)
-        ))?;
-    
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Task '{}' not found", task_id),
+            )
+        })?;
+
     task.content = new_content.to_string();
     let updated_task = task.clone();
-    
-    save_tasks(file_path, &task_file)?;
-    
+
     if json_out {
         let json = serde_json::to_string_pretty(&updated_task)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -456,32 +467,32 @@ fn handle_edit_content(
     } else {
         println!("Updated {} content", task_id);
     }
-    
+
     Ok(())
 }
 
 /// Handles the add content command
 fn handle_add_content(
-    file_path: &Path,
+    task_file: &mut TaskFile,
     task_id: &str,
     content_to_add: &str,
     json_out: bool,
 ) -> io::Result<()> {
-    let mut task_file = load_tasks(file_path)?;
-    
     // Find and update the task
-    let task = task_file.tasks.iter_mut()
+    let task = task_file
+        .tasks
+        .iter_mut()
         .find(|t| t.name == task_id)
-        .ok_or_else(|| io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("Task '{}' not found", task_id)
-        ))?;
-    
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Task '{}' not found", task_id),
+            )
+        })?;
+
     task.content.push_str(content_to_add);
     let updated_task = task.clone();
-    
-    save_tasks(file_path, &task_file)?;
-    
+
     if json_out {
         let json = serde_json::to_string_pretty(&updated_task)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -489,45 +500,43 @@ fn handle_add_content(
     } else {
         println!("Appended content to {}", task_id);
     }
-    
+
     Ok(())
 }
 
-
-
 /// Handles the add depends-on command
 fn handle_add_depends_on(
-    file_path: &Path,
+    task_file: &mut TaskFile,
     task_id: &str,
     depends_on_id: &str,
     json_out: bool,
 ) -> io::Result<()> {
-    let mut task_file = load_tasks(file_path)?;
-    
     // Validate both tasks exist
     if !task_file.tasks.iter().any(|t| t.name == depends_on_id) {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("Dependency task '{}' not found", depends_on_id)
+            format!("Dependency task '{}' not found", depends_on_id),
         ));
     }
-    
+
     // Find and update the task
-    let task = task_file.tasks.iter_mut()
+    let task = task_file
+        .tasks
+        .iter_mut()
         .find(|t| t.name == task_id)
-        .ok_or_else(|| io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("Task '{}' not found", task_id)
-        ))?;
-    
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Task '{}' not found", task_id),
+            )
+        })?;
+
     // Prevent duplicates
     if !task.depends_on.contains(&depends_on_id.to_string()) {
         task.depends_on.push(depends_on_id.to_string());
     }
     let updated_task = task.clone();
-    
-    save_tasks(file_path, &task_file)?;
-    
+
     if json_out {
         let json = serde_json::to_string_pretty(&updated_task)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -535,33 +544,33 @@ fn handle_add_depends_on(
     } else {
         println!("Added dependency {} to {}", depends_on_id, task_id);
     }
-    
+
     Ok(())
 }
 
 /// Handles the del depends-on command
 fn handle_del_depends_on(
-    file_path: &Path,
+    task_file: &mut TaskFile,
     task_id: &str,
     depends_on_id: &str,
     json_out: bool,
 ) -> io::Result<()> {
-    let mut task_file = load_tasks(file_path)?;
-    
     // Find and update the task
-    let task = task_file.tasks.iter_mut()
+    let task = task_file
+        .tasks
+        .iter_mut()
         .find(|t| t.name == task_id)
-        .ok_or_else(|| io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("Task '{}' not found", task_id)
-        ))?;
-    
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Task '{}' not found", task_id),
+            )
+        })?;
+
     // Remove dependency
     task.depends_on.retain(|d| d != depends_on_id);
     let updated_task = task.clone();
-    
-    save_tasks(file_path, &task_file)?;
-    
+
     if json_out {
         let json = serde_json::to_string_pretty(&updated_task)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -569,38 +578,36 @@ fn handle_del_depends_on(
     } else {
         println!("Removed dependency {} from {}", depends_on_id, task_id);
     }
-    
+
     Ok(())
 }
 
 /// Prints a task in verbose format
-
-
 /// Handles the add epic command
 fn handle_add_epic(
-    file_path: &Path,
+    task_file: &mut TaskFile,
     task_id: &str,
     epic_name: &str,
     json_out: bool,
 ) -> io::Result<()> {
-    let mut task_file = load_tasks(file_path)?;
-    
     // Find and update the task
-    let task = task_file.tasks.iter_mut()
+    let task = task_file
+        .tasks
+        .iter_mut()
         .find(|t| t.name == task_id)
-        .ok_or_else(|| io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("Task '{}' not found", task_id)
-        ))?;
-    
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Task '{}' not found", task_id),
+            )
+        })?;
+
     // Prevent duplicates
     if !task.epic.contains(&epic_name.to_string()) {
         task.epic.push(epic_name.to_string());
     }
     let updated_task = task.clone();
-    
-    save_tasks(file_path, &task_file)?;
-    
+
     if json_out {
         let json = serde_json::to_string_pretty(&updated_task)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -608,33 +615,33 @@ fn handle_add_epic(
     } else {
         println!("Added epic {} to {}", epic_name, task_id);
     }
-    
+
     Ok(())
 }
 
 /// Handles the del epic command
 fn handle_del_epic(
-    file_path: &Path,
+    task_file: &mut TaskFile,
     task_id: &str,
     epic_name: &str,
     json_out: bool,
 ) -> io::Result<()> {
-    let mut task_file = load_tasks(file_path)?;
-    
     // Find and update the task
-    let task = task_file.tasks.iter_mut()
+    let task = task_file
+        .tasks
+        .iter_mut()
         .find(|t| t.name == task_id)
-        .ok_or_else(|| io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("Task '{}' not found", task_id)
-        ))?;
-    
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Task '{}' not found", task_id),
+            )
+        })?;
+
     // Remove epic
     task.epic.retain(|e| e != epic_name);
     let updated_task = task.clone();
-    
-    save_tasks(file_path, &task_file)?;
-    
+
     if json_out {
         let json = serde_json::to_string_pretty(&updated_task)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -642,60 +649,61 @@ fn handle_del_epic(
     } else {
         println!("Removed epic {} from {}", epic_name, task_id);
     }
-    
+
     Ok(())
 }
 
 /// Handles the claim command
 fn handle_claim(
-    file_path: &Path,
+    task_file: &mut TaskFile,
     new_state: &str,
     from_state: &str,
     epic_filter: Option<&str>,
     json_out: bool,
 ) -> io::Result<()> {
-    let mut task_file = load_tasks(file_path)?;
-    
     // Find first task matching filters with no blocking dependencies
-    let claimable_task = task_file.tasks.iter()
-        .filter(|t| {
+    let claimable_task = task_file
+        .tasks
+        .iter()
+        .find(|t| {
             // Match state
             let state_match = t.state == from_state;
-            
+
             // Match epic if specified
-            let epic_match = epic_filter.map_or(true, |e| t.epic.contains(&e.to_string()));
-            
+            let epic_match = epic_filter.is_none_or(|e| t.epic.contains(&e.to_string()));
+
             // Check dependencies are not blocking
             let deps_satisfied = t.depends_on.iter().all(|dep_id| {
-                task_file.tasks.iter()
+                task_file
+                    .tasks
+                    .iter()
                     .find(|dt| dt.name == *dep_id)
-                    .map_or(true, |dt| dt.state == "done")
+                    .is_none_or(|dt| dt.state == "done")
             });
-            
+
             state_match && epic_match && deps_satisfied
-        })
-        .next();
-    
+        });
+
     let task_id = match claimable_task {
         Some(t) => t.name.clone(),
         None => {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                "No available tasks to claim"
+                "No available tasks to claim",
             ));
         }
     };
-    
+
     // Update the task state
-    let task = task_file.tasks.iter_mut()
+    let task = task_file
+        .tasks
+        .iter_mut()
         .find(|t| t.name == task_id)
         .unwrap();
-    
+
     task.state = new_state.to_string();
     let updated_task = task.clone();
-    
-    save_tasks(file_path, &task_file)?;
-    
+
     if json_out {
         let json = serde_json::to_string_pretty(&updated_task)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -703,7 +711,7 @@ fn handle_claim(
     } else {
         println!("Claimed {} and moved to {}", task_id, new_state);
     }
-    
+
     Ok(())
 }
 
@@ -722,23 +730,23 @@ fn print_task_verbose(task: &Task) {
 
 /// Handles the list command
 fn handle_list(
-    file_path: &Path,
+    task_file: &mut TaskFile,
     state_filter: Option<&str>,
     epic_filter: Option<&str>,
     verbose: bool,
     json_out: bool,
 ) -> io::Result<()> {
-    let task_file = load_tasks(file_path)?;
-    
     // Filter tasks
-    let filtered_tasks: Vec<&Task> = task_file.tasks.iter()
+    let filtered_tasks: Vec<&Task> = task_file
+        .tasks
+        .iter()
         .filter(|task| {
-            let state_match = state_filter.map_or(true, |s| task.state == s);
-            let epic_match = epic_filter.map_or(true, |e| task.epic.contains(&e.to_string()));
+            let state_match = state_filter.is_none_or(|s| task.state == s);
+            let epic_match = epic_filter.is_none_or(|e| task.epic.contains(&e.to_string()));
             state_match && epic_match
         })
         .collect();
-    
+
     if json_out {
         // Output as JSON
         let json = serde_json::to_string_pretty(&filtered_tasks)
@@ -756,7 +764,7 @@ fn handle_list(
             println!("{}: {}", task.name, first_line);
         }
     }
-    
+
     Ok(())
 }
 
