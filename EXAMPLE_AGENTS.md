@@ -25,13 +25,14 @@
 - Do NOT use external issue trackers
 - Do NOT duplicate tracking systems
 
-1. **Check ready work**: `minitask list --state todo` shows unblocked tasks
-2. **Claim your task atomically**: `minitask claim in-progress`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked task:
+1. **Check unfinished work**: `minitask list --state in-progress` shows started and unfinished tasks
+2. **Check ready work**: `minitask list --state todo` shows unblocked tasks
+3. **Claim your task atomically**: `minitask claim in-progress`
+4. **Work on it**: Implement, test, document
+5. **Discover new work?** Create linked task:
    - `minitask new "Found bug: Details about what was found"`
    - `minitask add depends-on <new-id> <parent-id>`
-5. **Complete**: `minitask edit state <id> done`
+6. **Complete**: `minitask edit state <id> done`
 
 # commands
 
