@@ -207,7 +207,7 @@ fn save_tasks(file: &mut File, task_file: &TaskFile) -> io::Result<()> {
     let content = toml::to_string_pretty(task_file)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    let _ = file.write_all(content.as_bytes())?;
+    file.write_all(content.as_bytes())?;
     Ok(())
 }
 
@@ -312,7 +312,7 @@ fn main() -> Result<(), std::io::Error> {
     };
 
     if result.is_ok() {
-        save_tasks(&mut filelock.file, &mut tasks_file)?;
+        save_tasks(&mut filelock.file, &tasks_file)?;
     }
     result
 }
@@ -583,7 +583,6 @@ fn handle_del_depends_on(
 }
 
 /// Prints a task in verbose format
-
 /// Handles the add epic command
 fn handle_add_epic(
     task_file: &mut TaskFile,
@@ -666,12 +665,12 @@ fn handle_claim(
     let claimable_task = task_file
         .tasks
         .iter()
-        .filter(|t| {
+        .find(|t| {
             // Match state
             let state_match = t.state == from_state;
 
             // Match epic if specified
-            let epic_match = epic_filter.map_or(true, |e| t.epic.contains(&e.to_string()));
+            let epic_match = epic_filter.is_none_or(|e| t.epic.contains(&e.to_string()));
 
             // Check dependencies are not blocking
             let deps_satisfied = t.depends_on.iter().all(|dep_id| {
@@ -679,12 +678,11 @@ fn handle_claim(
                     .tasks
                     .iter()
                     .find(|dt| dt.name == *dep_id)
-                    .map_or(true, |dt| dt.state == "done")
+                    .is_none_or(|dt| dt.state == "done")
             });
 
             state_match && epic_match && deps_satisfied
-        })
-        .next();
+        });
 
     let task_id = match claimable_task {
         Some(t) => t.name.clone(),
@@ -743,8 +741,8 @@ fn handle_list(
         .tasks
         .iter()
         .filter(|task| {
-            let state_match = state_filter.map_or(true, |s| task.state == s);
-            let epic_match = epic_filter.map_or(true, |e| task.epic.contains(&e.to_string()));
+            let state_match = state_filter.is_none_or(|s| task.state == s);
+            let epic_match = epic_filter.is_none_or(|e| task.epic.contains(&e.to_string()));
             state_match && epic_match
         })
         .collect();
