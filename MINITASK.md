@@ -9,7 +9,6 @@ A simple, efficient task management CLI tool written in Rust.
 - **Epic organization** - Group tasks into epics
 - **State management** - Track task progress (todo, in-progress, done, etc.)
 - **Smart claiming** - Automatically claim next available task with dependency checking
-- **JSON support** - Input/output in JSON format for scripting
 - **Filtering** - Filter tasks by state or epic
 - **Verbose mode** - Detailed task information when needed
 
@@ -33,7 +32,7 @@ minitask list
 minitask claim in-progress
 
 # Mark task as done
-minitask edit state TASK-0 done
+minitask edit-state TASK-0 done
 ```
 
 ## Commands
@@ -72,42 +71,39 @@ minitask new "Task description"
 
 # Create task from stdin
 echo "Task from stdin" | minitask new -
-
-# Create with JSON output
-minitask new "New task" --json-out
 ```
 
-### `edit` - Edit task properties
+### `edit-state` / `edit-content` - Edit task properties
 
 ```bash
 # Change task state
-minitask edit state TASK-0 in-progress
+minitask edit-state TASK-0 in-progress
 
 # Replace task content
-minitask edit content TASK-0 "Updated description"
+minitask edit-content TASK-0 "Updated description"
 ```
 
-### `add` - Add to task properties
+### `add-content` / `add-depends-on` / `add-epic` - Add to task properties
 
 ```bash
 # Append to task content
-minitask add content TASK-0 "\nAdditional notes"
+minitask add-content TASK-0 "\nAdditional notes"
 
 # Add dependency
-minitask add depends-on TASK-0 TASK-1
+minitask add-depends-on TASK-0 TASK-1
 
 # Add to epic
-minitask add epic TASK-0 backend
+minitask add-epic TASK-0 backend
 ```
 
-### `del` - Remove from task properties
+### `del-depends-on` / `del-epic` - Remove from task properties
 
 ```bash
 # Remove dependency
-minitask del depends-on TASK-0 TASK-1
+minitask del-depends-on TASK-0 TASK-1
 
 # Remove from epic
-minitask del epic TASK-0 backend
+minitask del-epic TASK-0 backend
 ```
 
 ### `claim` - Claim next available task
@@ -135,8 +131,6 @@ The `claim` command automatically:
 ## Global Options
 
 - `--file <PATH>` - Use custom task file (default: `tasks.toml`)
-- `--json-out` - Output results as JSON
-- `--json-in` - Accept input as JSON from stdin
 
 ## Task File Format
 
@@ -169,31 +163,18 @@ minitask new "Implement authentication"
 minitask new "Write tests"
 
 # Add dependencies
-minitask add depends-on TASK-1 TASK-0
-minitask add depends-on TASK-2 TASK-1
+minitask add-depends-on TASK-1 TASK-0
+minitask add-depends-on TASK-2 TASK-1
 
 # Organize into epic
-minitask add epic TASK-0 api-development
-minitask add epic TASK-1 api-development
-minitask add epic TASK-2 api-development
+minitask add-epic TASK-0 api-development
+minitask add-epic TASK-1 api-development
+minitask add-epic TASK-2 api-development
 
 # Work on tasks
 minitask claim in-progress              # Claims TASK-0 (no dependencies)
-minitask edit state TASK-0 done
+minitask edit-state TASK-0 done
 minitask claim in-progress              # Claims TASK-1 (TASK-0 is done)
-```
-
-### JSON Integration
-
-```bash
-# Get task as JSON
-minitask show TASK-0 --json-out | jq .
-
-# Create task from JSON
-echo '{"content": "New task"}' | minitask new - --json-in --json-out
-
-# List tasks as JSON for processing
-minitask list --json-out | jq '.[] | select(.state == "todo")'
 ```
 
 ### Custom Task File
@@ -213,7 +194,7 @@ minitask is particularly effective for AI agent task management due to its:
 - **Atomic operations** - Each command is a single, clear action
 - **Dependency tracking** - Prevents agents from working on blocked tasks
 - **State visibility** - Agents can query current task status
-- **Structured format** - TOML/JSON output is easily parseable
+- **Structured format** - TOML task storage is easy to inspect and automate
 - **Claim mechanism** - Automatic task selection with dependency resolution
 
 ### Benefits for AI Agents

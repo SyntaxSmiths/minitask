@@ -21,7 +21,7 @@ sudo cp target/release/minitask /usr/local/bin/
 minitask new "Implement feature X"
 minitask list
 minitask claim in-progress
-minitask edit state TASK-0 done
+minitask edit-state TASK-0 done
 ```
 
 ## Key Features
@@ -30,7 +30,6 @@ minitask edit state TASK-0 done
 - Dependency tracking with automatic blocking
 - Epic-based organization
 - Smart task claiming with dependency resolution
-- JSON input/output for scripting
 - Filtering by state and epic
 
 ## Documentation

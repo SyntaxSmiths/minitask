@@ -31,8 +31,8 @@
 4. **Work on it**: Implement, test, document
 5. **Discover new work?** Create linked task:
    - `minitask new "Found bug: Details about what was found"`
-   - `minitask add depends-on <new-id> <parent-id>`
-6. **Complete**: `minitask edit state <id> done`
+   - `minitask add-depends-on <new-id> <parent-id>`
+6. **Complete**: `minitask edit-state <id> done`
 
 # commands
 
@@ -47,14 +47,14 @@
 | `minitask show [task-id]` | Show complete task details |
 | `minitask new "content"` | Create new task |
 | `minitask new -` | Create new task with content from stdin |
-| `minitask edit state [task-id] [state]` | Change task state |
-| `minitask edit content [task-id] "content"` | Replace task content |
-| `minitask add content [task-id] "content"` | Append to task content |
-| `minitask add depends-on [task-id] [other-id]` | Add task dependency |
-| `minitask del depends-on [task-id] [other-id]` | Remove task dependency |
-| `minitask add epic [task-id] [epic-id]` | Add task to epic |
-| `minitask del epic [task-id] [epic-id]` | Remove task from epic |
+| `minitask edit-state [task-id] [state]` | Change task state |
+| `minitask edit-content [task-id] "content"` | Replace task content |
+| `minitask add-content [task-id] "content"` | Append to task content |
+| `minitask add-depends-on [task-id] [other-id]` | Add task dependency |
+| `minitask del-depends-on [task-id] [other-id]` | Remove task dependency |
+| `minitask add-epic [task-id] [epic-id]` | Add task to epic |
+| `minitask del-epic [task-id] [epic-id]` | Remove task from epic |
 | `minitask claim [new-state]` | Claim next task from todo (default) and move to new state |
-| `minitask claim [new-state] --from-state [state]` | Claim next task from specified state |
+| `minitask claim [new-state] --state [state]` | Claim next task from specified state |
 | `minitask claim [new-state] --epic [epic]` | Claim next task from specific epic |
-| `minitask claim [new-state] -f [state] -e [epic]` | Claim with custom state and epic filters |
+| `minitask claim [new-state] --state [state] --epic [epic]` | Claim with custom state and epic filters |
