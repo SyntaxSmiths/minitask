@@ -9,3 +9,4 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 serde_json = "1.0"
 file-lock = "2.1.11"
+clap-mcp = { git = "https://github.com/fneddy/clap-mcp.git", branch = "stateful" }
