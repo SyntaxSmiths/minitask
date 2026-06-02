@@ -85,6 +85,7 @@ enum Commands {
     /// current full task record before deciding what to change.
     Show {
         /// Task identifier such as `TASK-3`. Plain numbers are also accepted and normalized.
+        #[arg(long)]
         task_id: String,
 
         /// Include the full task content instead of a short summary.
@@ -94,61 +95,77 @@ enum Commands {
     /// Create a new task. The provided content becomes the full task body.
     New {
         /// Task body text. Pass `-` to read the content from stdin.
+        #[arg(long)]
         content: String,
     },
     /// Change the `state` field of an existing task.
     EditState {
         /// Task identifier such as `TASK-3`. Plain numbers are also accepted and normalized.
+        #[arg(long)]
         task_id: String,
         /// New state value to write into the task, for example `todo`, `in-progress`, or `done`.
+        #[arg(long)]
         state: String,
     },
     /// Replace the full text content of an existing task.
     EditContent {
         /// Task identifier such as `TASK-3`. Plain numbers are also accepted and normalized.
+        #[arg(long)]
         task_id: String,
         /// New full task body that replaces the current content.
+        #[arg(long)]
         content: String,
     },
     /// Append additional text to the end of an existing task's content.
     AddContent {
         /// Task identifier such as `TASK-3`. Plain numbers are also accepted and normalized.
+        #[arg(long)]
         task_id: String,
         /// Text to append to the existing task body.
+        #[arg(long)]
         content: String,
     },
     /// Add a dependency so this task records that it depends on another task.
     AddDependsOn {
         /// Task identifier such as `TASK-3`. Plain numbers are also accepted and normalized.
+        #[arg(long)]
         task_id: String,
         /// Identifier of the task this task depends on.
+        #[arg(long)]
         depends_on: String,
     },
     /// Attach an epic label to an existing task.
     AddEpic {
         /// Task identifier such as `TASK-3`. Plain numbers are also accepted and normalized.
+        #[arg(long)]
         task_id: String,
         /// Epic name to add to the task.
+        #[arg(long)]
         epic: String,
     },
     /// Remove one dependency from an existing task.
     DelDependsOn {
         /// Task identifier such as `TASK-3`. Plain numbers are also accepted and normalized.
+        #[arg(long)]
         task_id: String,
         /// Dependency task identifier to remove.
+        #[arg(long)]
         depends_on: String,
     },
     /// Remove one epic label from an existing task.
     DelEpic {
         /// Task identifier such as `TASK-3`. Plain numbers are also accepted and normalized.
+        #[arg(long)]
         task_id: String,
         /// Epic name to remove from the task.
+        #[arg(long)]
         epic: String,
     },
     /// Move the next matching task from one state to another and return the claimed task. Use this
     /// to reserve work before editing it further.
     Claim {
         /// State to assign to the claimed task, for example `in-progress`.
+        #[arg(long)]
         new_state: String,
 
         /// Only consider tasks currently in this source state. Defaults to `todo`.
