@@ -1,5 +1,5 @@
 use clap::{CommandFactory, Parser, Subcommand};
-use clap_mcp::{ClapMcp, ClapMcpToolError, ClapMcpToolOutput};
+use clap_mcp::{ClapMcp, ClapMcpToolError, ClapMcpToolOutput, ParseOrServeMcpWithState};
 use file_lock::{FileLock, FileOptions};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -35,7 +35,7 @@ fn print_full_help_inner(cmd: &mut clap::Command, path: &str) {
 
 /// Task management CLI tool
 #[derive(Parser, Debug, ClapMcp)]
-#[clap_mcp(reinvocation_safe, parallel_safe = false)]
+#[clap_mcp(reinvocation_safe, parallel_safe = false, stateful)]
 #[command(name = "minitask", about = "A simple task management tool", long_about = None, arg_required_else_help = true)]
 struct Cli {
     // Custom long help
@@ -59,11 +59,12 @@ struct State {
 }
 
 #[derive(Subcommand, Debug, Serialize, Deserialize, ClapMcp)]
+#[clap_mcp(reinvocation_safe)]
 #[clap_mcp_output_from_with_state = "mcp_pass"]
 #[clap_mcp_state_type = "Mutex<State>"]
 enum Commands {
-    /// Switch the active tasks file for this invocation. Use this before other actions when the
-    /// agent needs to work on a different task database than the default `tasks.toml`.
+    /// Switch the active tasks file for this invocation. Use this before other first minitask action and
+    /// set it to a preferred tasks tracking file. Always use the full file path.
     File { path: PathBuf },
     /// Return tasks from the current task file. Use filters to narrow the result set before doing
     /// follow-up actions such as claim, show, edit, add, or delete.
@@ -302,7 +303,7 @@ fn main() -> Result<(), Error> {
             file: cli.file.clone(),
         }));
 
-        clap_mcp::parse_or_serve_mcp_attr_with_state::<Cli, _>(state);
+        Cli::parse_or_serve_mcp_with_state(state.clone());
     } else {
         cli_pass(cli)?;
     }
@@ -331,7 +332,7 @@ fn cli_pass(cli: Cli) -> Result<TaskFile, Error> {
     result
 }
 
-fn mcp_pass(command: Commands, state: &Arc<Mutex<State>>) -> Result<TaskFile, Error> {
+fn mcp_pass(command: Commands, state: &Mutex<State>) -> Result<TaskFile, Error> {
     let mut state = state.lock()?;
 
     let options = FileOptions::new().write(true).read(true).create(true);
