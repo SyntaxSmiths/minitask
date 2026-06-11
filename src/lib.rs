@@ -639,7 +639,7 @@ fn handle_list(
     cli_out: bool,
 ) -> Result<TaskFile, Error> {
     // Filter tasks
-    let filtered_tasks: Vec<Task> = task_file
+    let mut filtered_tasks: Vec<Task> = task_file
         .tasks
         .iter()
         .filter(|task| {
@@ -663,6 +663,12 @@ fn handle_list(
                 println!("{}: {}", task.name, first_line);
             }
         }
+    }
+
+    if !verbose {
+        filtered_tasks.iter_mut().for_each(|task| {
+            task.content = String::new();
+        });
     }
 
     Ok(TaskFile {
