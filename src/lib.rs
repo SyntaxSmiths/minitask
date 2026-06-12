@@ -76,7 +76,7 @@ pub enum Commands {
         epic: Option<String>,
 
         /// Include full task content and metadata instead of only a short summary.
-        #[arg(long)]
+        #[arg(long, default_value_t = false)]
         verbose: bool,
     },
     /// Return one task by ID. Use this when the agent already knows the task ID and needs the
@@ -199,23 +199,39 @@ impl<T> From<PoisonError<T>> for Error {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     /// Unique task identifier (e.g., "TASK-0")
-    name: String,
+    pub name: String,
 
     /// Current state of the task (e.g., "todo", "in-progress", "done")
-    state: String,
+    pub state: String,
 
     /// List of task IDs this task depends on
     #[serde(default)]
-    depends_on: Vec<String>,
+    pub depends_on: Vec<String>,
 
     /// List of epics this task belongs to
     #[serde(default)]
-    epic: Vec<String>,
+    pub epic: Vec<String>,
 
     /// Task description and details
-    content: String,
+    pub content: String,
 }
 impl Task {
+    pub fn new(
+        name: &str,
+        state: &str,
+        depends_on: Vec<&str>,
+        epic: Vec<&str>,
+        content: &str,
+    ) -> Task {
+        Self {
+            name: name.to_string(),
+            state: state.to_string(),
+            depends_on: depends_on.into_iter().map(String::from).collect(),
+            epic: epic.into_iter().map(String::from).collect(),
+            content: content.to_string(),
+        }
+    }
+
     pub fn select(&self, state: Option<&str>, epic: Option<&str>) -> bool {
         match (state, epic) {
             (Some(state), Some(epic)) => {
@@ -247,7 +263,7 @@ impl Task {
 pub struct TaskFile {
     /// List of all tasks
     #[serde(default)]
-    tasks: Vec<Task>,
+    pub tasks: Vec<Task>,
 }
 
 impl clap_mcp::IntoClapMcpResult for TaskFile {
@@ -260,6 +276,41 @@ impl clap_mcp::IntoClapMcpResult for TaskFile {
 }
 
 impl TaskFile {
+    /// Loads tasks from a TOML file. Creates an empty file if it doesn't exist.
+    ///
+    /// # Arguments
+    /// * `file` - File handle
+    ///
+    /// # Returns
+    /// * `Result<TaskFile, Error>` - The loaded TaskFile or an error
+    pub fn load(file: &mut File) -> Result<TaskFile, Error> {
+        // Read and parse existing file
+        let mut content = String::new();
+        file.rewind()?;
+        let _ = file.read_to_string(&mut content)?;
+        let task_file: TaskFile =
+            toml::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        Ok(task_file)
+    }
+
+    /// Saves tasks to a TOML file.
+    ///
+    /// # Arguments
+    /// * `file` - file handle
+    /// * `task_file` - The TaskFile to save
+    ///
+    /// # Returns
+    /// * `Result<TaskFile, Error>` - Success or an error
+    pub fn save(&self, file: &mut File) -> Result<TaskFile, Error> {
+        file.rewind()?;
+        file.set_len(0)?;
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        file.write_all(content.as_bytes())?;
+        Ok((*self).clone())
+    }
+
     pub fn new(&mut self, content: &str, cli_out: bool) -> Result<TaskFile, Error> {
         use std::io::Read;
 
@@ -288,13 +339,7 @@ impl TaskFile {
         let task_name = format!("TASK-{}", next_id);
 
         // Create new task
-        let new_task = Task {
-            name: task_name.clone(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: task_content,
-        };
+        let new_task = Task::new(&task_name, "todo", vec![], vec![], &task_content);
 
         self.tasks.push(new_task.clone());
 
@@ -346,41 +391,6 @@ impl TaskFile {
     }
 }
 
-/// Loads tasks from a TOML file. Creates an empty file if it doesn't exist.
-///
-/// # Arguments
-/// * `file` - File handle
-///
-/// # Returns
-/// * `Result<TaskFile, Error>` - The loaded TaskFile or an error
-fn load_tasks(file: &mut File) -> Result<TaskFile, Error> {
-    // Read and parse existing file
-    let mut content = String::new();
-    file.rewind()?;
-    let _ = file.read_to_string(&mut content)?;
-    let task_file: TaskFile =
-        toml::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    Ok(task_file)
-}
-
-/// Saves tasks to a TOML file.
-///
-/// # Arguments
-/// * `file` - file handle
-/// * `task_file` - The TaskFile to save
-///
-/// # Returns
-/// * `Result<TaskFile, Error>` - Success or an error
-fn save_tasks(file: &mut File, task_file: &TaskFile) -> Result<TaskFile, Error> {
-    file.rewind()?;
-    file.set_len(0)?;
-    let content = toml::to_string_pretty(task_file)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-
-    file.write_all(content.as_bytes())?;
-    Ok((*task_file).clone())
-}
-
 /// Normalizes a task ID by prepending "TASK-" if only a number is provided
 ///
 /// # Arguments
@@ -398,8 +408,8 @@ fn normalize_task_id(id: &str) -> String {
 
 pub fn cli_pass(cli: Cli) -> Result<TaskFile, Error> {
     let options = FileOptions::new().write(true).read(true).create(true);
-    let mut filelock = FileLock::lock(&cli.file, false, options)?;
-    let mut tasks_file = load_tasks(&mut filelock.file)?;
+    let mut file_lock = FileLock::lock(&cli.file, false, options)?;
+    let mut tasks_file = TaskFile::load(&mut file_lock.file)?;
     let mut state = State {
         cli_out: true,
         file: cli.file,
@@ -411,7 +421,7 @@ pub fn cli_pass(cli: Cli) -> Result<TaskFile, Error> {
         &mut state,
     );
     if result.is_ok() {
-        save_tasks(&mut filelock.file, &tasks_file)?;
+        tasks_file.save(&mut file_lock.file)?;
     }
 
     result
@@ -422,11 +432,11 @@ fn mcp_pass(command: Commands, state: &Mutex<State>) -> Result<TaskFile, Error> 
 
     let options = FileOptions::new().write(true).read(true).create(true);
     let mut filelock = FileLock::lock(&state.file, false, options)?;
-    let mut tasks_file = load_tasks(&mut filelock.file)?;
+    let mut tasks_file = TaskFile::load(&mut filelock.file)?;
 
     let result = command_pass(&mut tasks_file, command, &mut state);
     if result.is_ok() {
-        save_tasks(&mut filelock.file, &tasks_file)?;
+        tasks_file.save(&mut filelock.file)?;
     }
 
     result

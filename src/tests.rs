@@ -1,15 +1,24 @@
 use super::*;
 use std::fs;
+use std::fs::File;
+
+fn load_tasks(file: &mut File) -> Result<TaskFile, Error> {
+    TaskFile::load(file)
+}
+
+fn save_tasks(file: &mut File, task_file: &TaskFile) -> Result<TaskFile, Error> {
+    task_file.save(file)
+}
 
 #[test]
 fn test_task_serialization_roundtrip() {
-    let task = Task {
-        name: "TASK-0".to_string(),
-        state: "todo".to_string(),
-        depends_on: vec!["TASK-1".to_string()],
-        epic: vec!["planning".to_string()],
-        content: "Test task content".to_string(),
-    };
+    let task = Task::new(
+        "TASK-0",
+        "todo",
+        vec!["TASK-1"],
+        vec!["planning"],
+        "Test task content",
+    );
 
     // Serialize to JSON
     let json = serde_json::to_string(&task).unwrap();
@@ -60,13 +69,7 @@ fn test_load_existing_tasks() {
 
     // Create a test file
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test task".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test task")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -87,13 +90,13 @@ fn test_save_tasks() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "done".to_string(),
-            depends_on: vec!["TASK-1".to_string()],
-            epic: vec!["epic1".to_string()],
-            content: "Content here".to_string(),
-        }],
+        tasks: vec![Task::new(
+            "TASK-0",
+            "done",
+            vec!["TASK-1"],
+            vec!["epic1"],
+            "Content here",
+        )],
     };
 
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -116,20 +119,8 @@ fn test_list_all_tasks() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "First task".to_string(),
-            },
-            Task {
-                name: "TASK-1".to_string(),
-                state: "done".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "Second task".to_string(),
-            },
+            Task::new("TASK-0", "todo", vec![], vec![], "First task"),
+            Task::new("TASK-1", "done", vec![], vec![], "Second task"),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -150,20 +141,8 @@ fn test_list_filter_by_state() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "Todo task".to_string(),
-            },
-            Task {
-                name: "TASK-1".to_string(),
-                state: "done".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "Done task".to_string(),
-            },
+            Task::new("TASK-0", "todo", vec![], vec![], "Todo task"),
+            Task::new("TASK-1", "done", vec![], vec![], "Done task"),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -185,20 +164,14 @@ fn test_list_filter_by_epic() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec!["planning".to_string()],
-                content: "Planning task".to_string(),
-            },
-            Task {
-                name: "TASK-1".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec!["implementation".to_string()],
-                content: "Implementation task".to_string(),
-            },
+            Task::new("TASK-0", "todo", vec![], vec!["planning"], "Planning task"),
+            Task::new(
+                "TASK-1",
+                "todo",
+                vec![],
+                vec!["implementation"],
+                "Implementation task",
+            ),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -217,13 +190,13 @@ fn test_list_filter_by_epic() {
 
 #[test]
 fn test_list_verbose_output() {
-    let task = Task {
-        name: "TASK-0".to_string(),
-        state: "in-progress".to_string(),
-        depends_on: vec!["TASK-1".to_string()],
-        epic: vec!["epic1".to_string(), "epic2".to_string()],
-        content: "Multi-line\ncontent\nhere".to_string(),
-    };
+    let task = Task::new(
+        "TASK-0",
+        "in-progress",
+        vec!["TASK-1"],
+        vec!["epic1", "epic2"],
+        "Multi-line\ncontent\nhere",
+    );
 
     // Verify task has all fields populated
     assert_eq!(task.name, "TASK-0");
@@ -241,13 +214,13 @@ fn test_show_existing_task() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec!["TASK-1".to_string()],
-            epic: vec!["planning".to_string()],
-            content: "Test task content".to_string(),
-        }],
+        tasks: vec![Task::new(
+            "TASK-0",
+            "todo",
+            vec!["TASK-1"],
+            vec!["planning"],
+            "Test task content",
+        )],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -267,13 +240,7 @@ fn test_show_nonexistent_task() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -286,13 +253,13 @@ fn test_show_nonexistent_task() {
 
 #[test]
 fn test_show_json_output() {
-    let task = Task {
-        name: "TASK-0".to_string(),
-        state: "in-progress".to_string(),
-        depends_on: vec!["TASK-1".to_string()],
-        epic: vec!["epic1".to_string()],
-        content: "Content here".to_string(),
-    };
+    let task = Task::new(
+        "TASK-0",
+        "in-progress",
+        vec!["TASK-1"],
+        vec!["epic1"],
+        "Content here",
+    );
 
     let json = serde_json::to_string(&task).unwrap();
     let deserialized: Task = serde_json::from_str(&json).unwrap();
@@ -314,14 +281,13 @@ fn test_new_task_with_content() {
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
     // Add a new task
-    let new_task = Task {
-        name: "TASK-0".to_string(),
-        state: "todo".to_string(),
-        depends_on: vec![],
-        epic: vec![],
-        content: "New task content".to_string(),
-    };
-    task_file.tasks.push(new_task);
+    task_file.tasks.push(Task::new(
+        "TASK-0",
+        "todo",
+        vec![],
+        vec![],
+        "New task content",
+    ));
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
     let loaded = load_tasks(&mut filelock.file).unwrap();
@@ -341,20 +307,8 @@ fn test_new_task_unique_id_generation() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "First".to_string(),
-            },
-            Task {
-                name: "TASK-2".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "Third".to_string(),
-            },
+            Task::new("TASK-0", "todo", vec![], vec![], "First"),
+            Task::new("TASK-2", "todo", vec![], vec![], "Third"),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -378,13 +332,7 @@ fn test_new_task_unique_id_generation() {
 
 #[test]
 fn test_new_task_json_parsing() {
-    let task = Task {
-        name: "TASK-0".to_string(),
-        state: "todo".to_string(),
-        depends_on: vec![],
-        epic: vec![],
-        content: "Test content".to_string(),
-    };
+    let task = Task::new("TASK-0", "todo", vec![], vec![], "Test content");
 
     let json = serde_json::to_string(&task).unwrap();
     let parsed: Task = serde_json::from_str(&json).unwrap();
@@ -401,13 +349,7 @@ fn test_edit_state_success() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test task".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test task")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -431,13 +373,7 @@ fn test_edit_state_invalid_task() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -456,13 +392,13 @@ fn test_edit_state_preserves_other_fields() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec!["TASK-1".to_string()],
-            epic: vec!["epic1".to_string()],
-            content: "Original content".to_string(),
-        }],
+        tasks: vec![Task::new(
+            "TASK-0",
+            "todo",
+            vec!["TASK-1"],
+            vec!["epic1"],
+            "Original content",
+        )],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -489,13 +425,13 @@ fn test_edit_content_success() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Original content".to_string(),
-        }],
+        tasks: vec![Task::new(
+            "TASK-0",
+            "todo",
+            vec![],
+            vec![],
+            "Original content",
+        )],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -519,13 +455,7 @@ fn test_edit_content_invalid_task() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -544,13 +474,13 @@ fn test_edit_content_preserves_other_fields() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "in-progress".to_string(),
-            depends_on: vec!["TASK-1".to_string()],
-            epic: vec!["epic1".to_string()],
-            content: "Original content".to_string(),
-        }],
+        tasks: vec![Task::new(
+            "TASK-0",
+            "in-progress",
+            vec!["TASK-1"],
+            vec!["epic1"],
+            "Original content",
+        )],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -577,13 +507,13 @@ fn test_add_content_success() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Original content".to_string(),
-        }],
+        tasks: vec![Task::new(
+            "TASK-0",
+            "todo",
+            vec![],
+            vec![],
+            "Original content",
+        )],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -610,13 +540,7 @@ fn test_add_content_invalid_task() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -635,13 +559,13 @@ fn test_add_content_preserves_existing() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Line 1\nLine 2".to_string(),
-        }],
+        tasks: vec![Task::new(
+            "TASK-0",
+            "todo",
+            vec![],
+            vec![],
+            "Line 1\nLine 2",
+        )],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -668,20 +592,8 @@ fn test_add_depends_on_success() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "First task".to_string(),
-            },
-            Task {
-                name: "TASK-1".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "Second task".to_string(),
-            },
+            Task::new("TASK-0", "todo", vec![], vec![], "First task"),
+            Task::new("TASK-1", "todo", vec![], vec![], "Second task"),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -706,13 +618,7 @@ fn test_add_depends_on_invalid_task() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -732,20 +638,8 @@ fn test_add_depends_on_prevent_duplicates() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec!["TASK-1".to_string()],
-                epic: vec![],
-                content: "Test".to_string(),
-            },
-            Task {
-                name: "TASK-1".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "Dependency".to_string(),
-            },
+            Task::new("TASK-0", "todo", vec!["TASK-1"], vec![], "Test"),
+            Task::new("TASK-1", "todo", vec![], vec![], "Dependency"),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -773,20 +667,8 @@ fn test_del_depends_on_success() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec!["TASK-1".to_string(), "TASK-2".to_string()],
-                epic: vec![],
-                content: "Test task".to_string(),
-            },
-            Task {
-                name: "TASK-1".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "Dependency".to_string(),
-            },
+            Task::new("TASK-0", "todo", vec!["TASK-1", "TASK-2"], vec![], "Test task"),
+            Task::new("TASK-1", "todo", vec![], vec![], "Dependency"),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -811,13 +693,7 @@ fn test_del_depends_on_invalid_task() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -836,13 +712,7 @@ fn test_del_depends_on_nonexistent() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec!["TASK-1".to_string()],
-            epic: vec![],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec!["TASK-1"], vec![], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -866,13 +736,7 @@ fn test_add_epic_success() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test task".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test task")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -896,13 +760,7 @@ fn test_add_epic_invalid_task() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -921,13 +779,7 @@ fn test_add_epic_prevent_duplicates() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec!["planning".to_string()],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec!["planning"], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -953,13 +805,13 @@ fn test_del_epic_success() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec!["planning".to_string(), "implementation".to_string()],
-            content: "Test task".to_string(),
-        }],
+        tasks: vec![Task::new(
+            "TASK-0",
+            "todo",
+            vec![],
+            vec!["planning", "implementation"],
+            "Test task",
+        )],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -983,13 +835,7 @@ fn test_del_epic_invalid_task() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec![], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -1008,13 +854,7 @@ fn test_del_epic_nonexistent() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "todo".to_string(),
-            depends_on: vec![],
-            epic: vec!["planning".to_string()],
-            content: "Test".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "todo", vec![], vec!["planning"], "Test")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -1039,20 +879,8 @@ fn test_claim_task_from_todo() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "First task".to_string(),
-            },
-            Task {
-                name: "TASK-1".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "Second task".to_string(),
-            },
+            Task::new("TASK-0", "todo", vec![], vec![], "First task"),
+            Task::new("TASK-1", "todo", vec![], vec![], "Second task"),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -1079,20 +907,8 @@ fn test_claim_with_state_filter() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "blocked".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "Blocked task".to_string(),
-            },
-            Task {
-                name: "TASK-1".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "Todo task".to_string(),
-            },
+            Task::new("TASK-0", "blocked", vec![], vec![], "Blocked task"),
+            Task::new("TASK-1", "todo", vec![], vec![], "Todo task"),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -1115,20 +931,14 @@ fn test_claim_with_epic_filter() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec!["planning".to_string()],
-                content: "Planning task".to_string(),
-            },
-            Task {
-                name: "TASK-1".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec!["implementation".to_string()],
-                content: "Implementation task".to_string(),
-            },
+            Task::new("TASK-0", "todo", vec![], vec!["planning"], "Planning task"),
+            Task::new(
+                "TASK-1",
+                "todo",
+                vec![],
+                vec!["implementation"],
+                "Implementation task",
+            ),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
@@ -1153,13 +963,7 @@ fn test_claim_no_available_tasks() {
         FileLock::lock(&temp_file, false, options).expect("could not lock test_file");
 
     let task_file = TaskFile {
-        tasks: vec![Task {
-            name: "TASK-0".to_string(),
-            state: "done".to_string(),
-            depends_on: vec![],
-            epic: vec![],
-            content: "Done task".to_string(),
-        }],
+        tasks: vec![Task::new("TASK-0", "done", vec![], vec![], "Done task")],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
 
@@ -1180,20 +984,14 @@ fn test_claim_dependency_blocking() {
 
     let task_file = TaskFile {
         tasks: vec![
-            Task {
-                name: "TASK-0".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec!["TASK-1".to_string()],
-                epic: vec![],
-                content: "Blocked by TASK-1".to_string(),
-            },
-            Task {
-                name: "TASK-1".to_string(),
-                state: "todo".to_string(),
-                depends_on: vec![],
-                epic: vec![],
-                content: "No dependencies".to_string(),
-            },
+            Task::new(
+                "TASK-0",
+                "todo",
+                vec!["TASK-1"],
+                vec![],
+                "Blocked by TASK-1",
+            ),
+            Task::new("TASK-1", "todo", vec![], vec![], "No dependencies"),
         ],
     };
     save_tasks(&mut filelock.file, &task_file).unwrap();
