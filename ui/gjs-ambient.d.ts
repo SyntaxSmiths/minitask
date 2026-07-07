@@ -5,16 +5,18 @@ export interface GtkWindowLike {
 }
 
 export interface GtkWidgetLike {
-  add_css_class(name: string): void;
-  set_sensitive(value: boolean): void;
-  connect(signal: string, callback: (...args: any[]) => unknown): number;
-}
+    add_css_class(name: string): void;
+    add_controller(controller: unknown): void;
+    set_sensitive(value: boolean): void;
+    connect(signal: string, callback: (...args: any[]) => unknown): number;
+  }
 
 export interface GtkStringObjectLike {
     get_string(): string;
   }
 
 export interface GtkApplication {
+    connect(signal: string, callback: (...args: any[]) => unknown): number;
     quit(): void;
     run(args: string[]): number;
   }
@@ -30,6 +32,7 @@ export interface GtkApplicationWindowStatic {
 
 export interface GtkBox extends GtkWidgetLike {
     append(child: unknown): void;
+    remove(child: unknown): void;
   }
 export interface GtkBoxStatic {
     new (props?: Record<string, unknown>): GtkBox;
@@ -38,6 +41,33 @@ export interface GtkBoxStatic {
 export interface GtkButton extends GtkWidgetLike {}
 export interface GtkButtonStatic {
     new (props?: Record<string, unknown>): GtkButton;
+  }
+
+export interface GtkGestureClick {
+    connect(signal: string, callback: (...args: any[]) => unknown): number;
+  }
+export interface GtkGestureClickStatic {
+    new (): GtkGestureClick;
+  }
+
+export interface GtkCssProvider {
+    prefers_color_scheme: number;
+  }
+export interface GtkCssProviderStatic {
+    new (): GtkCssProvider;
+  }
+
+export interface GtkSettings {
+    gtk_application_prefer_dark_theme: boolean;
+    gtk_interface_color_scheme: number;
+    connect(signal: string, callback: (...args: any[]) => unknown): number;
+  }
+export interface GtkSettingsStatic {
+    get_default(): GtkSettings | null;
+  }
+
+export interface GtkStyleContextStatic {
+    add_provider_for_display(display: GdkDisplay, provider: GtkCssProvider, priority: number): void;
   }
 
 export interface GtkDropDown extends GtkWidgetLike {
@@ -88,23 +118,78 @@ export interface GtkScrolledWindowStatic {
     new (props?: Record<string, unknown>): GtkScrolledWindow;
   }
 
+export interface GtkTextIter {}
+
+export interface GtkTextBuffer {
+    get_bounds(): [GtkTextIter, GtkTextIter];
+    get_text(start: GtkTextIter, end: GtkTextIter, includeHiddenChars: boolean): string;
+    set_text(text: string, length: number): void;
+  }
+
+export interface GtkTextView extends GtkWidgetLike {
+    get_buffer(): GtkTextBuffer;
+  }
+export interface GtkTextViewStatic {
+    new (props?: Record<string, unknown>): GtkTextView;
+  }
+
 export interface GtkNamespace {
     Application: GtkApplicationStatic;
     ApplicationWindow: GtkApplicationWindowStatic;
     Box: GtkBoxStatic;
     Button: GtkButtonStatic;
+    CssProvider: GtkCssProviderStatic;
     DropDown: GtkDropDownStatic;
     Entry: GtkEntryStatic;
+    GestureClick: GtkGestureClickStatic;
     Label: GtkLabelStatic;
     ListBox: GtkListBoxStatic;
     ListBoxRow: GtkListBoxRowStatic;
     ScrolledWindow: GtkScrolledWindowStatic;
+    Settings: GtkSettingsStatic;
+    StyleContext: GtkStyleContextStatic;
+    TextView: GtkTextViewStatic;
     Orientation: {
       HORIZONTAL: number;
       VERTICAL: number;
     };
+    InterfaceColorScheme: {
+      DEFAULT: number;
+      LIGHT: number;
+      DARK: number;
+      UNSUPPORTED: number;
+    };
+    STYLE_PROVIDER_PRIORITY_APPLICATION: number;
     SelectionMode: {
       NONE: number;
+    };
+  }
+
+export interface GdkDisplay {}
+export interface GdkDisplayStatic {
+    get_default(): GdkDisplay | null;
+  }
+
+export interface GdkNamespace {
+    Display: GdkDisplayStatic;
+  }
+
+export interface AdwStyleManager {
+    color_scheme: number;
+  }
+
+export interface AdwStyleManagerStatic {
+    get_default(): AdwStyleManager;
+  }
+
+export interface AdwNamespace {
+    StyleManager: AdwStyleManagerStatic;
+    ColorScheme: {
+      DEFAULT: number;
+      FORCE_LIGHT: number;
+      PREFER_LIGHT: number;
+      PREFER_DARK: number;
+      FORCE_DARK: number;
     };
   }
 
@@ -138,6 +223,9 @@ export interface GioFileStatic {
   }
 
 export interface GioNamespace {
+    ApplicationFlags: {
+      NON_UNIQUE: number;
+    };
     Cancellable: GioCancellableStatic;
     File: GioFileStatic;
     FileMonitorFlags: {

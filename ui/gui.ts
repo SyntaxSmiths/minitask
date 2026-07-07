@@ -1,6 +1,7 @@
 #!/usr/bin/env gjs
 
 type GtkNamespace = import("./gjs-ambient").GtkNamespace;
+type AdwNamespace = import("./gjs-ambient").AdwNamespace;
 type GioNamespace = import("./gjs-ambient").GioNamespace;
 type GLibNamespace = import("./gjs-ambient").GLibNamespace;
 type GioUnixNamespace = import("./gjs-ambient").GioUnixNamespace;
@@ -9,6 +10,7 @@ type GObjectNamespace = import("./gjs-ambient").GObjectNamespace;
 declare const imports: {
   gi: {
     versions: Record<string, string>;
+    Adw: AdwNamespace;
     Gtk: GtkNamespace;
     Gio: GioNamespace;
     GLib: GLibNamespace;
@@ -23,13 +25,16 @@ declare const imports: {
 declare function logError(error: unknown, message?: string): void;
 
 type GtkModule = GtkNamespace;
+type AdwModule = AdwNamespace;
 type GioModule = GioNamespace;
 type GLibModule = GLibNamespace;
 type GioUnixModule = GioUnixNamespace;
 type GObjectModule = GObjectNamespace;
 
 imports.gi.versions.Gtk = "4.0";
+imports.gi.versions.Adw = "1";
 
+const Adw: AdwModule = imports.gi.Adw;
 const Gtk: GtkModule = imports.gi.Gtk;
 const Gio: GioModule = imports.gi.Gio;
 const GioUnix: GioUnixModule = imports.gi.GioUnix;
@@ -39,6 +44,10 @@ const ByteArray = imports.byteArray;
 const APPLICATION_ID = "ai.minitask.Gui";
 const PROTOCOL_VERSION = "2024-11-05";
 const TASK_STATES = ["todo", "in-progress", "review", "done", "blocked"] as const;
+
+function syncSystemColorScheme(): void {
+  Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.DEFAULT;
+}
 
 interface JsonMap {
   [key: string]: JsonValue;
@@ -146,6 +155,7 @@ type GtkLabel = InstanceType<typeof Gtk.Label>;
 type GtkListBox = InstanceType<typeof Gtk.ListBox>;
 type GtkListBoxRow = InstanceType<typeof Gtk.ListBoxRow>;
 type GtkScrolledWindow = InstanceType<typeof Gtk.ScrolledWindow>;
+type GtkTextView = InstanceType<typeof Gtk.TextView>;
 type GioCancellable = InstanceType<typeof Gio.Cancellable>;
 type GioFile = import("./gjs-ambient").GioFile;
 type GioFileMonitor = ReturnType<GioFile["monitor_file"]>;
@@ -540,6 +550,16 @@ class MinitaskService {
     });
   }
 
+  async updateTaskContent(taskId: string, content: string): Promise<void> {
+    await this.connection.request("tools/call", {
+      name: "edit-content",
+      arguments: {
+        task_id: taskId,
+        content,
+      },
+    });
+  }
+
   close(): void {
     this.connection.close();
   }
@@ -622,7 +642,11 @@ class TaskFileWatcher {
 }
 
 class TaskRowFactory {
-  create(task: TaskRecord, onMove: TaskMoveHandler): GtkListBoxRow {
+  create(
+    task: TaskRecord,
+    onMove: TaskMoveHandler,
+    onSaveContent: (taskId: string, content: string) => void,
+  ): GtkListBoxRow {
     const titleLabel: GtkLabel = new Gtk.Label({
       label: task.name,
       xalign: 0,
@@ -665,11 +689,53 @@ class TaskRowFactory {
     header.append(titleLabel);
     header.append(stateLabel);
 
+    const contentArea: GtkBox = new Gtk.Box({
+      orientation: Gtk.Orientation.VERTICAL,
+      spacing: 6,
+    });
     const contentLabel: GtkLabel = new Gtk.Label({
       label: task.content,
       xalign: 0,
       wrap: true,
     });
+    contentArea.append(contentLabel);
+
+    const showEditor = (): void => {
+      contentArea.remove(contentLabel);
+
+      const contentView: GtkTextView = new Gtk.TextView({
+        editable: true,
+        cursor_visible: true,
+        monospace: false,
+        wrap_mode: 2,
+      });
+      contentView.get_buffer().set_text(task.content, -1);
+
+      const contentScroller: GtkScrolledWindow = new Gtk.ScrolledWindow({
+        hexpand: true,
+        min_content_height: 96,
+        max_content_height: 320,
+      });
+      contentScroller.set_child(contentView);
+
+      const saveButton: GtkButton = new Gtk.Button({
+        label: "save",
+      });
+      saveButton.connect("clicked", () => {
+        const contentBuffer = contentView.get_buffer();
+        const [start, end] = contentBuffer.get_bounds();
+        onSaveContent(task.name, contentBuffer.get_text(start, end, false));
+      });
+
+      contentArea.append(contentScroller);
+      contentArea.append(saveButton);
+    };
+
+    const clickController = new Gtk.GestureClick();
+    clickController.connect("pressed", () => {
+      showEditor();
+    });
+    contentLabel.add_controller(clickController);
 
     const actions: GtkBox = new Gtk.Box({
       orientation: Gtk.Orientation.HORIZONTAL,
@@ -691,7 +757,7 @@ class TaskRowFactory {
     for (const metadataLabel of metadataLabels) {
       contentBox.append(metadataLabel);
     }
-    contentBox.append(contentLabel);
+    contentBox.append(contentArea);
     contentBox.append(actions);
 
     const row: GtkListBoxRow = new Gtk.ListBoxRow();
@@ -851,6 +917,21 @@ class MainWindowController {
     }
   }
 
+  private async handleSaveTaskContent(taskId: string, content: string): Promise<void> {
+    this.setBusy(true, `saving ${taskId}...`);
+    try {
+      this.fileWatcher.markOwnWrite();
+      await this.service.updateTaskContent(taskId, content);
+      this.fileWatcher.refreshVersion();
+      await this.reload();
+      this.setStatus(`${taskId} content saved`);
+    } catch (error) {
+      this.showError(error);
+    } finally {
+      this.setBusy(false, "");
+    }
+  }
+
   private async reload(): Promise<void> {
     if (this.reloadInFlight) {
       this.reloadQueued = true;
@@ -902,9 +983,15 @@ class MainWindowController {
     }
 
     for (const task of [...tasks].reverse()) {
-      this.ui.taskList.append(this.rowFactory.create(task, (taskId, nextState) => {
-        void this.handleMoveTask(taskId, nextState);
-      }));
+      this.ui.taskList.append(this.rowFactory.create(
+        task,
+        (taskId, nextState) => {
+          void this.handleMoveTask(taskId, nextState);
+        },
+        (taskId, content) => {
+          void this.handleSaveTaskContent(taskId, content);
+        },
+      ));
     }
   }
 
@@ -935,7 +1022,13 @@ class MainWindowController {
 const MinitaskApplication = GObject.registerClass(
   class MinitaskApplication extends Gtk.Application {
     constructor() {
-      super({ application_id: APPLICATION_ID });
+      super({
+        application_id: APPLICATION_ID,
+        flags: Gio.ApplicationFlags.NON_UNIQUE,
+      });
+      this.connect("startup", () => {
+        syncSystemColorScheme();
+      });
     }
 
     vfunc_activate(): void {
