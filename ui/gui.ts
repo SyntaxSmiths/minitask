@@ -890,6 +890,10 @@ class MainWindowController {
   }
 
   private renderTasks(tasks: TaskRecord[]): void {
+    // This view only renders the current filtered task slice and rebuilds it on
+    // explicit reload/file-change events. For the expected small task counts and
+    // per-row custom actions in this GUI, Gtk.ListBox keeps the code simpler than
+    // a Gio.ListStore/Gtk.ListView migration without changing visible behavior.
     let child = this.ui.taskList.get_first_child();
     while (child) {
       const next = child.get_next_sibling();

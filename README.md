@@ -36,6 +36,16 @@ minitask edit-state TASK-0 done
 
 For complete command reference, examples, and detailed usage, see [MINITASK.md](MINITASK.md).
 
+## GUI Rendering Note
+
+The GTK task list intentionally remains on `Gtk.ListBox` rather than a GTK 4
+model/view stack. The current GUI reloads the visible filtered task set on
+explicit refreshes and file-change events, preserves ordering by rebuilding the
+same rows in reverse task order, and wires per-row state buttons directly to the
+matching task ID. For the expected task counts in this tool, that keeps the
+implementation smaller and easier to reason about than introducing
+`Gio.ListStore` and `Gtk.ListView`.
+
 ## License
 
 MIT
