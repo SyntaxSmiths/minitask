@@ -1,13 +1,32 @@
 #!/usr/bin/env gjs
 
-declare const imports: any;
+type GtkNamespace = import("./gjs-ambient").GtkNamespace;
+type GioNamespace = import("./gjs-ambient").GioNamespace;
+type GLibNamespace = import("./gjs-ambient").GLibNamespace;
+type GioUnixNamespace = import("./gjs-ambient").GioUnixNamespace;
+type GObjectNamespace = import("./gjs-ambient").GObjectNamespace;
+
+declare const imports: {
+  gi: {
+    versions: Record<string, string>;
+    Gtk: GtkNamespace;
+    Gio: GioNamespace;
+    GLib: GLibNamespace;
+    GioUnix: GioUnixNamespace;
+    GObject: GObjectNamespace;
+  };
+  byteArray: {
+    toString(bytes: Uint8Array): string;
+    fromString(text: string): Uint8Array;
+  };
+};
 declare function logError(error: unknown, message?: string): void;
 
-type GtkModule = any;
-type GioModule = any;
-type GLibModule = any;
-type GioUnixModule = any;
-type GObjectModule = any;
+type GtkModule = GtkNamespace;
+type GioModule = GioNamespace;
+type GLibModule = GLibNamespace;
+type GioUnixModule = GioUnixNamespace;
+type GObjectModule = GObjectNamespace;
 
 imports.gi.versions.Gtk = "4.0";
 
@@ -98,13 +117,13 @@ interface PendingRequest {
 }
 
 interface UiRefs {
-  window: any;
-  taskEntry: any;
-  addButton: any;
-  refreshButton: any;
-  stateFilter: any;
-  statusLabel: any;
-  taskList: any;
+  window: GtkApplicationWindow;
+  taskEntry: GtkEntry;
+  addButton: GtkButton;
+  refreshButton: GtkButton;
+  stateFilter: GtkDropDown;
+  statusLabel: GtkLabel;
+  taskList: GtkListBox;
 }
 
 interface FileWatchOptions {
@@ -116,6 +135,22 @@ interface FileVersion {
   etag: string;
   size: number;
 }
+
+type GtkApplication = InstanceType<typeof Gtk.Application>;
+type GtkApplicationWindow = InstanceType<typeof Gtk.ApplicationWindow>;
+type GtkBox = InstanceType<typeof Gtk.Box>;
+type GtkButton = InstanceType<typeof Gtk.Button>;
+type GtkDropDown = InstanceType<typeof Gtk.DropDown>;
+type GtkEntry = InstanceType<typeof Gtk.Entry>;
+type GtkLabel = InstanceType<typeof Gtk.Label>;
+type GtkListBox = InstanceType<typeof Gtk.ListBox>;
+type GtkListBoxRow = InstanceType<typeof Gtk.ListBoxRow>;
+type GtkScrolledWindow = InstanceType<typeof Gtk.ScrolledWindow>;
+type GioCancellable = InstanceType<typeof Gio.Cancellable>;
+type GioFile = import("./gjs-ambient").GioFile;
+type GioFileMonitor = ReturnType<GioFile["monitor_file"]>;
+type GioInputStream = InstanceType<typeof GioUnix.InputStream>;
+type GioOutputStream = InstanceType<typeof GioUnix.OutputStream>;
 
 function envString(name: string): string {
   const value = GLib.getenv(name);
@@ -222,15 +257,15 @@ function toTaskListResult(value: JsonValue): TaskListResult {
 
 
 class JsonLineChannel {
-  private readonly input: any;
-  private readonly output: any;
-  private readonly cancellable: any;
+  private readonly input: GioInputStream;
+  private readonly output: GioOutputStream;
+  private readonly cancellable: GioCancellable;
   private buffer = "";
   private closed = false;
   private started = false;
   private readonly onMessage: (message: RpcMessage) => void;
 
-  constructor(input: any, output: any, onMessage: (message: RpcMessage) => void) {
+  constructor(input: GioInputStream, output: GioOutputStream, onMessage: (message: RpcMessage) => void) {
     this.input = input;
     this.output = output;
     this.cancellable = new Gio.Cancellable();
@@ -511,8 +546,8 @@ class MinitaskService {
 }
 
 class TaskFileWatcher {
-  private readonly file: any;
-  private monitor: any = null;
+  private readonly file: GioFile;
+  private monitor: GioFileMonitor | null = null;
   private version: FileVersion | null = null;
   private ignoreNextChange = false;
   private readonly onChange: () => void;
@@ -587,21 +622,21 @@ class TaskFileWatcher {
 }
 
 class TaskRowFactory {
-  create(task: TaskRecord, onMove: TaskMoveHandler): any {
-    const titleLabel = new Gtk.Label({
+  create(task: TaskRecord, onMove: TaskMoveHandler): GtkListBoxRow {
+    const titleLabel: GtkLabel = new Gtk.Label({
       label: task.name,
       xalign: 0,
       hexpand: true,
     });
     titleLabel.add_css_class("heading");
 
-    const stateLabel = new Gtk.Label({
+    const stateLabel: GtkLabel = new Gtk.Label({
       label: task.state,
       xalign: 1,
     });
     stateLabel.add_css_class("dim-label");
 
-    const metadataLabels: any[] = [];
+    const metadataLabels: GtkLabel[] = [];
     if (task.epic.length > 0) {
       metadataLabels.push(new Gtk.Label({ label: `epic: ${task.epic.join(", ")}`, xalign: 0, wrap: true }));
     }
@@ -609,8 +644,8 @@ class TaskRowFactory {
       metadataLabels.push(new Gtk.Label({ label: `depends on: ${task.depends_on.join(", ")}`, xalign: 0, wrap: true }));
     }
 
-    const actionButtons = TASK_STATES.map((nextState) => {
-      const action = new Gtk.Button({
+    const actionButtons: GtkButton[] = TASK_STATES.map((nextState) => {
+      const action: GtkButton = new Gtk.Button({
         label: nextState,
         sensitive: true,
       });
@@ -623,20 +658,20 @@ class TaskRowFactory {
       return action;
     });
 
-    const header = new Gtk.Box({
+    const header: GtkBox = new Gtk.Box({
       orientation: Gtk.Orientation.HORIZONTAL,
       spacing: 12,
     });
     header.append(titleLabel);
     header.append(stateLabel);
 
-    const contentLabel = new Gtk.Label({
+    const contentLabel: GtkLabel = new Gtk.Label({
       label: task.content,
       xalign: 0,
       wrap: true,
     });
 
-    const actions = new Gtk.Box({
+    const actions: GtkBox = new Gtk.Box({
       orientation: Gtk.Orientation.HORIZONTAL,
       spacing: 6,
     });
@@ -644,7 +679,7 @@ class TaskRowFactory {
       actions.append(actionButton);
     }
 
-    const contentBox = new Gtk.Box({
+    const contentBox: GtkBox = new Gtk.Box({
       orientation: Gtk.Orientation.VERTICAL,
       spacing: 6,
       margin_top: 10,
@@ -659,31 +694,31 @@ class TaskRowFactory {
     contentBox.append(contentLabel);
     contentBox.append(actions);
 
-    const row = new Gtk.ListBoxRow();
+    const row: GtkListBoxRow = new Gtk.ListBoxRow();
     row.set_child(contentBox);
     return row;
   }
 }
 
 class MainWindowFactory {
-  create(app: any): UiRefs {
-    const taskEntry = new Gtk.Entry({
+  create(app: GtkApplication): UiRefs {
+    const taskEntry: GtkEntry = new Gtk.Entry({
       hexpand: true,
       placeholder_text: "new task content",
     });
-    const addButton = new Gtk.Button({ label: "add" });
-    const refreshButton = new Gtk.Button({ label: "refresh" });
-    const stateFilter = Gtk.DropDown.new_from_strings(["all", ...TASK_STATES]);
+    const addButton: GtkButton = new Gtk.Button({ label: "add" });
+    const refreshButton: GtkButton = new Gtk.Button({ label: "refresh" });
+    const stateFilter: GtkDropDown = Gtk.DropDown.new_from_strings(["all", ...TASK_STATES]);
     stateFilter.set_selected(0);
-    const statusLabel = new Gtk.Label({
+    const statusLabel: GtkLabel = new Gtk.Label({
       label: "connecting...",
       xalign: 0,
     });
-    const taskList = new Gtk.ListBox({
+    const taskList: GtkListBox = new Gtk.ListBox({
       selection_mode: Gtk.SelectionMode.NONE,
     });
 
-    const toolbar = new Gtk.Box({
+    const toolbar: GtkBox = new Gtk.Box({
       orientation: Gtk.Orientation.HORIZONTAL,
       spacing: 6,
     });
@@ -692,13 +727,13 @@ class MainWindowFactory {
     toolbar.append(addButton);
     toolbar.append(refreshButton);
 
-    const scroller = new Gtk.ScrolledWindow({
+    const scroller: GtkScrolledWindow = new Gtk.ScrolledWindow({
       hexpand: true,
       vexpand: true,
     });
     scroller.set_child(taskList);
 
-    const content = new Gtk.Box({
+    const content: GtkBox = new Gtk.Box({
       orientation: Gtk.Orientation.VERTICAL,
       spacing: 12,
       margin_top: 12,
@@ -710,7 +745,7 @@ class MainWindowFactory {
     content.append(statusLabel);
     content.append(scroller);
 
-    const window = new Gtk.ApplicationWindow({
+    const window: GtkApplicationWindow = new Gtk.ApplicationWindow({
       application: app,
       title: "minitask",
       default_width: 960,
