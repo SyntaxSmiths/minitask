@@ -11,6 +11,25 @@ fn main() {
     let embedded = out_dir.join("embedded_gui.rs");
 
     let status = Command::new("tsc")
+        .arg("--pretty")
+        .arg("false")
+        .arg("--noEmit")
+        .arg("--target")
+        .arg("ES2022")
+        .arg("--module")
+        .arg("none")
+        .arg("--lib")
+        .arg("ES2022")
+        .arg(&source)
+        .status();
+
+    match status {
+        Ok(status) if status.success() => {}
+        Ok(status) => panic!("tsc failed with status: {status}"),
+        Err(error) => panic!("failed to run tsc: {error}"),
+    }
+
+    let status = Command::new("tsc")
         .arg("--target")
         .arg("ES2022")
         .arg("--module")
@@ -24,8 +43,8 @@ fn main() {
 
     match status {
         Ok(status) if status.success() && compiled.exists() => {}
-        Ok(status) => panic!("tsc failed with status: {status}"),
-        Err(error) => panic!("failed to run tsc: {error}"),
+        Ok(status) => panic!("tsc emit failed with status: {status}"),
+        Err(error) => panic!("failed to run tsc emit step: {error}"),
     }
 
     let gui_js = std::fs::read_to_string(&compiled).expect("failed to read compiled gui.js");

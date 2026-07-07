@@ -1,16 +1,6 @@
 #!/usr/bin/env gjs
 
 declare const imports: any;
-declare const TextEncoder: {
-  new (): {
-    encode(input: string): Uint8Array;
-  };
-};
-declare const TextDecoder: {
-  new (): {
-    decode(input: Uint8Array): string;
-  };
-};
 declare function logError(error: unknown, message?: string): void;
 
 type GtkModule = any;
@@ -26,8 +16,7 @@ const Gio: GioModule = imports.gi.Gio;
 const GioUnix: GioUnixModule = imports.gi.GioUnix;
 const GLib: GLibModule = imports.gi.GLib;
 const GObject: GObjectModule = imports.gi.GObject;
-
-
+const ByteArray = imports.byteArray;
 const APPLICATION_ID = "ai.minitask.Gui";
 const PROTOCOL_VERSION = "2024-11-05";
 const TASK_STATES = ["todo", "in-progress", "review", "done", "blocked"] as const;
@@ -39,7 +28,6 @@ interface JsonMap {
 type JsonValue = null | boolean | number | string | JsonMap | JsonValue[];
 type RpcId = number;
 type TaskState = (typeof TASK_STATES)[number];
-type ClickHandler = () => void;
 type TaskMoveHandler = (taskId: string, nextState: TaskState) => void;
 
 interface RpcRequest {
@@ -109,30 +97,6 @@ interface PendingRequest {
   reject: (reason?: unknown) => void;
 }
 
-interface WidgetProps {
-  [key: string]: unknown;
-}
-
-interface WidgetSpec<TWidget = any> {
-  widget: TWidget;
-}
-
-interface BoxSpec extends WidgetSpec {
-  children?: WidgetSpec[];
-}
-
-interface SingleChildSpec extends WidgetSpec {
-  child?: WidgetSpec;
-}
-
-interface ScrolledWindowSpec extends SingleChildSpec {}
-
-interface WindowSpec extends SingleChildSpec {}
-
-interface ButtonSpec extends WidgetSpec {
-  onClicked?: ClickHandler;
-}
-
 interface UiRefs {
   window: any;
   taskEntry: any;
@@ -167,12 +131,11 @@ function requireEnvString(name: string): string {
 }
 
 function decodeBytes(bytes: Uint8Array): string {
-  return new TextDecoder().decode(bytes);
+  return imports.byteArray.toString(bytes);
 }
 
 function encodeLine(message: JsonValue): Uint8Array {
-  const encoder = new TextEncoder();
-  return encoder.encode(`${JSON.stringify(message)}\n`);
+  return ByteArray.fromString(`${JSON.stringify(message)}\n`);
 }
 
 function isJsonMap(value: JsonValue | undefined): value is JsonMap {
@@ -257,91 +220,6 @@ function toTaskListResult(value: JsonValue): TaskListResult {
   return { tasks };
 }
 
-function applyProps(widget: any, props?: WidgetProps): any {
-  if (!props) {
-    return widget;
-  }
-
-  for (const [key, value] of Object.entries(props)) {
-    if (key === "cssClasses" && Array.isArray(value)) {
-      for (const cssClass of value) {
-        widget.add_css_class(cssClass);
-      }
-      continue;
-    }
-
-    if (typeof widget[`set_${key}`] === "function") {
-      widget[`set_${key}`](value);
-      continue;
-    }
-
-    widget[key] = value;
-  }
-
-  return widget;
-}
-
-function box(props: WidgetProps = {}, children: WidgetSpec[] = []): BoxSpec {
-  const widget = applyProps(new Gtk.Box(), props);
-  return { widget, children };
-}
-
-function label(props: WidgetProps = {}): WidgetSpec {
-  return { widget: applyProps(new Gtk.Label(), props) };
-}
-
-function entry(props: WidgetProps = {}): WidgetSpec {
-  return { widget: applyProps(new Gtk.Entry(), props) };
-}
-
-function button(props: WidgetProps = {}, onClicked?: ClickHandler): ButtonSpec {
-  const widget = applyProps(new Gtk.Button(), props);
-  return { widget, onClicked };
-}
-
-function listBox(props: WidgetProps = {}): WidgetSpec {
-  return { widget: applyProps(new Gtk.ListBox(), props) };
-}
-
-function dropDown(strings: string[], props: WidgetProps = {}): WidgetSpec {
-  const widget = Gtk.DropDown.new_from_strings(strings);
-  return { widget: applyProps(widget, props) };
-}
-
-function scrolledWindow(props: WidgetProps = {}, child?: WidgetSpec): ScrolledWindowSpec {
-  const widget = applyProps(new Gtk.ScrolledWindow(), props);
-  return { widget, child };
-}
-
-function applicationWindow(props: WidgetProps = {}, child?: WidgetSpec): WindowSpec {
-  const widget = applyProps(new Gtk.ApplicationWindow(), props);
-  return { widget, child };
-}
-
-function mount(spec: WidgetSpec): any {
-  const boxSpec = spec as BoxSpec;
-  if (boxSpec.children) {
-    for (const child of boxSpec.children) {
-      spec.widget.append(child.widget);
-      mount(child);
-    }
-    return spec.widget;
-  }
-
-  const singleChildSpec = spec as SingleChildSpec;
-  if (singleChildSpec.child) {
-    mount(singleChildSpec.child);
-    spec.widget.set_child(singleChildSpec.child.widget);
-    return spec.widget;
-  }
-
-  const buttonSpec = spec as ButtonSpec;
-  if (buttonSpec.onClicked) {
-    spec.widget.connect("clicked", buttonSpec.onClicked);
-  }
-
-  return spec.widget;
-}
 
 class JsonLineChannel {
   private readonly input: any;
@@ -710,132 +588,136 @@ class TaskFileWatcher {
 
 class TaskRowFactory {
   create(task: TaskRecord, onMove: TaskMoveHandler): any {
-    const titleLabel = label({
+    const titleLabel = new Gtk.Label({
       label: task.name,
       xalign: 0,
       hexpand: true,
-      cssClasses: ["heading"],
     });
-    const stateLabel = label({
+    titleLabel.add_css_class("heading");
+
+    const stateLabel = new Gtk.Label({
       label: task.state,
       xalign: 1,
-      cssClasses: ["dim-label"],
     });
+    stateLabel.add_css_class("dim-label");
 
-    const metadataChildren: WidgetSpec[] = [];
+    const metadataLabels: any[] = [];
     if (task.epic.length > 0) {
-      metadataChildren.push(label({ label: `epic: ${task.epic.join(", ")}`, xalign: 0, wrap: true }));
+      metadataLabels.push(new Gtk.Label({ label: `epic: ${task.epic.join(", ")}`, xalign: 0, wrap: true }));
     }
     if (task.depends_on.length > 0) {
-      metadataChildren.push(label({ label: `depends on: ${task.depends_on.join(", ")}`, xalign: 0, wrap: true }));
+      metadataLabels.push(new Gtk.Label({ label: `depends on: ${task.depends_on.join(", ")}`, xalign: 0, wrap: true }));
     }
 
     const actionButtons = TASK_STATES.map((nextState) => {
-      const action = button(
-        {
-          label: nextState,
-          sensitive: true,
-          cssClasses: nextState === task.state ? ["suggested-action"] : [],
-        },
-        () => {
-          onMove(task.name, nextState);
-        },
-      );
-      mount(action);
+      const action = new Gtk.Button({
+        label: nextState,
+        sensitive: true,
+      });
+      if (nextState === task.state) {
+        action.add_css_class("suggested-action");
+      }
+      action.connect("clicked", () => {
+        onMove(task.name, nextState);
+      });
       return action;
     });
 
-    const contentTree = box(
-      {
-        orientation: Gtk.Orientation.VERTICAL,
-        spacing: 6,
-        margin_top: 10,
-        margin_bottom: 10,
-        margin_start: 10,
-        margin_end: 10,
-      },
-      [
-        box(
-          {
-            orientation: Gtk.Orientation.HORIZONTAL,
-            spacing: 12,
-          },
-          [titleLabel, stateLabel],
-        ),
-        ...metadataChildren,
-        label({ label: task.content, xalign: 0, wrap: true }),
-        box(
-          {
-            orientation: Gtk.Orientation.HORIZONTAL,
-            spacing: 6,
-          },
-          actionButtons,
-        ),
-      ],
-    );
+    const header = new Gtk.Box({
+      orientation: Gtk.Orientation.HORIZONTAL,
+      spacing: 12,
+    });
+    header.append(titleLabel);
+    header.append(stateLabel);
+
+    const contentLabel = new Gtk.Label({
+      label: task.content,
+      xalign: 0,
+      wrap: true,
+    });
+
+    const actions = new Gtk.Box({
+      orientation: Gtk.Orientation.HORIZONTAL,
+      spacing: 6,
+    });
+    for (const actionButton of actionButtons) {
+      actions.append(actionButton);
+    }
+
+    const contentBox = new Gtk.Box({
+      orientation: Gtk.Orientation.VERTICAL,
+      spacing: 6,
+      margin_top: 10,
+      margin_bottom: 10,
+      margin_start: 10,
+      margin_end: 10,
+    });
+    contentBox.append(header);
+    for (const metadataLabel of metadataLabels) {
+      contentBox.append(metadataLabel);
+    }
+    contentBox.append(contentLabel);
+    contentBox.append(actions);
 
     const row = new Gtk.ListBoxRow();
-    row.set_child(mount(contentTree));
+    row.set_child(contentBox);
     return row;
   }
 }
 
 class MainWindowFactory {
   create(app: any): UiRefs {
-    const taskEntry = entry({
+    const taskEntry = new Gtk.Entry({
       hexpand: true,
       placeholder_text: "new task content",
     });
-    const addButton = button({ label: "add" });
-    const refreshButton = button({ label: "refresh" });
-    const stateFilter = dropDown(["all", ...TASK_STATES], {
-      selected: 0,
-    });
-    const statusLabel = label({
+    const addButton = new Gtk.Button({ label: "add" });
+    const refreshButton = new Gtk.Button({ label: "refresh" });
+    const stateFilter = Gtk.DropDown.new_from_strings(["all", ...TASK_STATES]);
+    stateFilter.set_selected(0);
+    const statusLabel = new Gtk.Label({
       label: "connecting...",
       xalign: 0,
     });
-    const taskList = listBox({
+    const taskList = new Gtk.ListBox({
       selection_mode: Gtk.SelectionMode.NONE,
     });
 
-    const tree = applicationWindow(
-      {
-        application: app,
-        title: "minitask",
-        default_width: 960,
-        default_height: 720,
-      },
-      box(
-        {
-          orientation: Gtk.Orientation.VERTICAL,
-          spacing: 12,
-          margin_top: 12,
-          margin_bottom: 12,
-          margin_start: 12,
-          margin_end: 12,
-        },
-        [
-          box(
-            {
-              orientation: Gtk.Orientation.HORIZONTAL,
-              spacing: 6,
-            },
-            [taskEntry, stateFilter, addButton, refreshButton],
-          ),
-          statusLabel,
-          scrolledWindow(
-            {
-              hexpand: true,
-              vexpand: true,
-            },
-            taskList,
-          ),
-        ],
-      ),
-    );
+    const toolbar = new Gtk.Box({
+      orientation: Gtk.Orientation.HORIZONTAL,
+      spacing: 6,
+    });
+    toolbar.append(taskEntry);
+    toolbar.append(stateFilter);
+    toolbar.append(addButton);
+    toolbar.append(refreshButton);
 
-    const window = mount(tree);
+    const scroller = new Gtk.ScrolledWindow({
+      hexpand: true,
+      vexpand: true,
+    });
+    scroller.set_child(taskList);
+
+    const content = new Gtk.Box({
+      orientation: Gtk.Orientation.VERTICAL,
+      spacing: 12,
+      margin_top: 12,
+      margin_bottom: 12,
+      margin_start: 12,
+      margin_end: 12,
+    });
+    content.append(toolbar);
+    content.append(statusLabel);
+    content.append(scroller);
+
+    const window = new Gtk.ApplicationWindow({
+      application: app,
+      title: "minitask",
+      default_width: 960,
+      default_height: 720,
+    });
+    window.set_child(content);
+
     window.connect("close-request", () => {
       app.quit();
       return false;
@@ -843,12 +725,12 @@ class MainWindowFactory {
 
     return {
       window,
-      taskEntry: taskEntry.widget,
-      addButton: addButton.widget,
-      refreshButton: refreshButton.widget,
-      stateFilter: stateFilter.widget,
-      statusLabel: statusLabel.widget,
-      taskList: taskList.widget,
+      taskEntry,
+      addButton,
+      refreshButton,
+      stateFilter,
+      statusLabel,
+      taskList,
     };
   }
 }
