@@ -504,7 +504,7 @@ pub fn serve_gui(state: std::sync::Arc<Mutex<State>>, task_file: PathBuf) -> Res
                     return Err(io::Error::other(format!("gjs exited with status {status}")).into());
                 }
 
-                serve.await.map_err(|error| io::Error::other(error.to_string()))?;
+                return Ok(());
             }
         }
 

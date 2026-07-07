@@ -29,8 +29,7 @@ const GObject: GObjectModule = imports.gi.GObject;
 
 
 const APPLICATION_ID = "ai.minitask.Gui";
-const TASK_FILE = "tasks.toml";
-const PROTOCOL_VERSION = "";
+const PROTOCOL_VERSION = "2024-11-05";
 const TASK_STATES = ["todo", "in-progress", "review", "done", "blocked"] as const;
 
 interface JsonMap {
@@ -75,6 +74,12 @@ interface RpcFailure {
 }
 
 type RpcMessage = RpcSuccess | RpcFailure;
+
+interface RpcNotificationMessage {
+  jsonrpc: "2.0";
+  method: string;
+  params?: JsonValue;
+}
 
 interface ContentBlock {
   type?: string;
@@ -153,6 +158,14 @@ function envString(name: string): string {
   return value ?? "";
 }
 
+function requireEnvString(name: string): string {
+  const value = envString(name);
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
+  return value;
+}
+
 function decodeBytes(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
 }
@@ -176,6 +189,29 @@ function asString(value: JsonValue | undefined, fallback = ""): string {
 
 function asStringArray(value: JsonValue | undefined): string[] {
   return asArray(value).filter((item): item is string => typeof item === "string");
+}
+
+function isRpcFailure(value: JsonMap): boolean {
+  return typeof value.id === "number" &&
+    isJsonMap(value.error) &&
+    typeof value.error.code === "number" &&
+    typeof value.error.message === "string";
+}
+
+function isRpcSuccess(value: JsonMap): boolean {
+  return typeof value.id === "number" && "result" in value;
+}
+
+function isRpcNotification(value: JsonMap): boolean {
+  return typeof value.method === "string" && !("id" in value);
+}
+
+function isRpcMessage(value: JsonValue): boolean {
+  if (!isJsonMap(value) || value.jsonrpc !== "2.0") {
+    return false;
+  }
+
+  return isRpcFailure(value) || isRpcSuccess(value) || isRpcNotification(value);
 }
 
 function parseToolPayload(result: ToolCallEnvelope): JsonValue {
@@ -310,15 +346,16 @@ function mount(spec: WidgetSpec): any {
 class JsonLineChannel {
   private readonly input: any;
   private readonly output: any;
-  private readonly errorInput: any;
+  private readonly cancellable: any;
   private buffer = "";
+  private closed = false;
   private started = false;
   private readonly onMessage: (message: RpcMessage) => void;
 
-  constructor(input: any, output: any, errorInput: any, onMessage: (message: RpcMessage) => void) {
+  constructor(input: any, output: any, onMessage: (message: RpcMessage) => void) {
     this.input = input;
     this.output = output;
-    this.errorInput = errorInput;
+    this.cancellable = new Gio.Cancellable();
     this.onMessage = onMessage;
   }
 
@@ -329,7 +366,6 @@ class JsonLineChannel {
 
     this.started = true;
     this.readStdout();
-    this.readStderr();
   }
 
   async send(message: RpcRequest | RpcNotification): Promise<void> {
@@ -352,9 +388,30 @@ class JsonLineChannel {
     });
   }
 
+  close(): void {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
+    this.cancellable.cancel();
+
+    try {
+      this.output.close(null);
+    } catch (error) {
+      if (!this.isExpectedCloseError(error)) {
+        logError(error, "closing minitask output");
+      }
+    }
+  }
+
   private readStdout(): void {
     const pump = () => {
-      this.input.read_bytes_async(4096, GLib.PRIORITY_DEFAULT, null, (_stream: unknown, result: unknown) => {
+      if (this.closed) {
+        return;
+      }
+
+      this.input.read_bytes_async(4096, GLib.PRIORITY_DEFAULT, this.cancellable, (_stream: unknown, result: unknown) => {
         try {
           const bytes = this.input.read_bytes_finish(result);
           const chunk = bytes.toArray();
@@ -367,27 +424,9 @@ class JsonLineChannel {
           this.drainBuffer();
           pump();
         } catch (error) {
-          logError(error, "minitask stdout");
-        }
-      });
-    };
-
-    pump();
-  }
-
-  private readStderr(): void {
-    const stream = new Gio.DataInputStream({ base_stream: this.errorInput });
-
-    const pump = () => {
-      stream.read_line_async(GLib.PRIORITY_DEFAULT, null, (_source: unknown, result: unknown) => {
-        try {
-          const [line] = stream.read_line_finish_utf8(result);
-          if (line === null) {
-            return;
+          if (!this.closed && !this.isExpectedCloseError(error)) {
+            logError(error, "minitask stdout");
           }
-          logError(new Error(line), "minitask stderr");
-          pump();
-        } catch {
         }
       });
     };
@@ -408,8 +447,39 @@ class JsonLineChannel {
         continue;
       }
 
-      this.onMessage(JSON.parse(line) as RpcMessage);
+      const message = this.parseMessage(line);
+      if (message) {
+        this.onMessage(message);
+      }
     }
+  }
+
+  private parseMessage(line: string): RpcMessage | null {
+    try {
+      const parsed = JSON.parse(line) as JsonValue;
+      if (!isJsonMap(parsed) || !isRpcMessage(parsed)) {
+        logError(new Error(`Ignoring unexpected MCP message: ${line}`), "minitask protocol");
+        return null;
+      }
+
+      if (isRpcNotification(parsed)) {
+        return null;
+      }
+
+      return parsed as unknown as RpcMessage;
+    } catch (error) {
+      logError(error, `Failed to parse MCP message: ${line}`);
+      return null;
+    }
+  }
+
+  private isExpectedCloseError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return error.message.includes("Operation was cancelled")
+      || error.message.includes("Stream is already closed");
   }
 }
 
@@ -419,17 +489,16 @@ class McpConnection {
   private nextId = 1;
   private ready = false;
 
-  constructor(_binaryPath: string, _taskFile: string) {
-    const socketFd = envString("MINITASK_GUI_SOCKET_FD");
-    if (!socketFd) {
-      throw new Error("MINITASK_GUI_SOCKET_FD is required");
+  constructor() {
+    const socketFd = requireEnvString("MINITASK_GUI_SOCKET_FD");
+    const fd = Number.parseInt(socketFd, 10);
+    if (!Number.isInteger(fd) || fd < 0) {
+      throw new Error(`MINITASK_GUI_SOCKET_FD must be a non-negative integer, got: ${socketFd}`);
     }
 
-    const fd = Number.parseInt(socketFd, 10);
-    const input = new GioUnix.InputStream({ fd, close_fd: false });
+    const input = new GioUnix.InputStream({ fd, close_fd: true });
     const output = new GioUnix.OutputStream({ fd, close_fd: false });
-    const errorInput = new Gio.MemoryInputStream();
-    this.channel = new JsonLineChannel(input, output, errorInput, (message) => {
+    this.channel = new JsonLineChannel(input, output, (message) => {
       this.handleMessage(message);
     });
   }
@@ -479,6 +548,14 @@ class McpConnection {
       params,
     };
     await this.channel.send(message);
+  }
+
+  close(): void {
+    for (const pending of this.pending.values()) {
+      pending.reject(new Error("GUI closed"));
+    }
+    this.pending.clear();
+    this.channel.close();
   }
 
   private handleMessage(message: RpcMessage): void {
@@ -548,6 +625,10 @@ class MinitaskService {
         state,
       },
     });
+  }
+
+  close(): void {
+    this.connection.close();
   }
 }
 
@@ -755,6 +836,11 @@ class MainWindowFactory {
     );
 
     const window = mount(tree);
+    window.connect("close-request", () => {
+      app.quit();
+      return false;
+    });
+
     return {
       window,
       taskEntry: taskEntry.widget,
@@ -919,6 +1005,10 @@ class MainWindowController {
     const message = error instanceof Error ? error.message : String(error);
     this.setStatus(`error: ${message}`);
   }
+
+  close(): void {
+    this.service.close();
+  }
 }
 
 const MinitaskApplication = GObject.registerClass(
@@ -928,13 +1018,17 @@ const MinitaskApplication = GObject.registerClass(
     }
 
     vfunc_activate(): void {
-      const taskFile = envString("MINITASK_GUI_TASK_FILE") || GLib.build_filenamev([GLib.get_current_dir(), TASK_FILE]);
-      const connection = new McpConnection(taskFile, taskFile);
+      const taskFile = requireEnvString("MINITASK_GUI_TASK_FILE");
+      const connection = new McpConnection();
       const service = new MinitaskService(connection);
       const ui = new MainWindowFactory().create(this);
       const controller = new MainWindowController(ui, service, new TaskRowFactory(), taskFile);
 
       controller.bind();
+      ui.window.connect("close-request", () => {
+        controller.close();
+        return false;
+      });
       ui.window.present();
       void controller.initialize();
     }
