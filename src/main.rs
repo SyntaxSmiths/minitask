@@ -1,5 +1,4 @@
-use clap::CommandFactory;
-use clap_mcp::ParseOrServeMcpWithState;
+use clap::{CommandFactory, Parser};
 use minitask::*;
 use std::sync::{Arc, Mutex};
 
@@ -20,10 +19,17 @@ fn main() -> Result<(), Error> {
         file: "tasks.toml".into(),
     }));
 
-    // parse_or_serve_mcp_with_state is the single entry point:
-    // - if argv contains --mcp it starts the MCP server (never returns)
-    // - otherwise it parses argv normally and returns the Cli struct
-    let cli = Cli::parse_or_serve_mcp_with_state(state);
+    let cli = Cli::parse();
+
+    if cli.gui {
+        serve_gui(Arc::clone(&state), cli.file.clone())?;
+        return Ok(());
+    }
+
+    if cli.mcp {
+        serve_mcp(state)?;
+        return Ok(());
+    }
 
     cli_pass(cli)?;
 

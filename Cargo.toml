@@ -2,6 +2,7 @@
 name = "minitask"
 version = "0.1.2"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
@@ -9,4 +10,6 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 serde_json = "1.0"
 file-lock = "2.1.11"
-clap-mcp = "0.0.4-rc.2"
+clap-mcp = "0.0.5"
+command-fds = "0.3.3"
+tokio = { version = "1", features = ["net"] }

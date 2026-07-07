@@ -1,11 +1,24 @@
 use clap::{Parser, Subcommand};
-use clap_mcp::{ClapMcp, ClapMcpToolError, ClapMcpToolOutput};
+use clap_mcp::{ClapMcp, ClapMcpToolError, ClapMcpToolOutput, McpListen, ServeMcpBuilder};
+use command_fds::{CommandFdExt, FdMapping};
 use file_lock::{FileLock, FileOptions};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read, Seek, Write};
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::sync::{Mutex, PoisonError};
+
+#[cfg(unix)]
+use std::os::fd::OwnedFd;
+
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+
+#[cfg(unix)]
+use tokio::net::UnixStream as TokioUnixStream;
+
+include!(concat!(env!("OUT_DIR"), "/embedded_gui.rs"));
 
 pub fn print_full_help(cmd: &mut clap::Command) {
     print_full_help_inner(cmd, "");
@@ -38,6 +51,14 @@ fn print_full_help_inner(cmd: &mut clap::Command, path: &str) {
 #[clap_mcp(reinvocation_safe, parallel_safe = false, stateful)]
 #[command(name = "minitask", about = "A simple task management tool", long_about = None, arg_required_else_help = true)]
 pub struct Cli {
+    /// Start the GTK GUI via gjs.
+    #[arg(long, global = true, action = clap::ArgAction::SetTrue)]
+    pub gui: bool,
+
+    /// Start the MCP server over stdio.
+    #[arg(long, global = true, action = clap::ArgAction::SetTrue)]
+    pub mcp: bool,
+
     // Custom long help
     #[arg(long, action = clap::ArgAction::SetTrue)]
     pub long_help: bool,
@@ -425,6 +446,75 @@ pub fn cli_pass(cli: Cli) -> Result<TaskFile, Error> {
     }
 
     result
+}
+
+pub fn serve_mcp(state: std::sync::Arc<Mutex<State>>) -> Result<(), Error> {
+    ServeMcpBuilder::for_cli_with_state::<Cli>(McpListen::Stdio, state)
+        .serve_blocking()
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    Ok(())
+}
+
+#[cfg(unix)]
+pub fn serve_gui(state: std::sync::Arc<Mutex<State>>, task_file: PathBuf) -> Result<(), Error> {
+    let (gui_stream, mcp_stream) = UnixStream::pair()?;
+    let gui_fd: OwnedFd = gui_stream.into();
+    mcp_stream.set_nonblocking(true)?;
+
+    let mut child = Command::new("gjs");
+    child
+        .arg("-c")
+        .arg(EMBEDDED_GUI_JS)
+        .env("MINITASK_GUI_SOCKET_FD", "3")
+        .env("MINITASK_GUI_TASK_FILE", task_file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    child
+        .fd_mappings(vec![FdMapping {
+            parent_fd: gui_fd,
+            child_fd: 3,
+        }])
+        .map_err(|error| io::Error::other(error.to_string()))?;
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()?;
+
+    runtime.block_on(async move {
+        let mut child = child.spawn()?;
+        let tokio_stream = TokioUnixStream::from_std(mcp_stream)?;
+        let (read_half, write_half) = tokio_stream.into_split();
+        let serve = ServeMcpBuilder::for_cli_with_state::<Cli>(McpListen::Stdio, state)
+            .stdio_io(read_half, write_half)
+            .serve();
+        let wait_child = tokio::task::spawn_blocking(move || child.wait());
+
+        tokio::pin!(serve);
+
+        tokio::select! {
+            serve_result = &mut serve => {
+                serve_result.map_err(|error| io::Error::other(error.to_string()))?;
+            }
+            wait_result = wait_child => {
+                let status = wait_result.map_err(|error| io::Error::other(error.to_string()))??;
+                if !status.success() {
+                    return Err(io::Error::other(format!("gjs exited with status {status}")).into());
+                }
+
+                serve.await.map_err(|error| io::Error::other(error.to_string()))?;
+            }
+        }
+
+        Ok(())
+    })
+}
+
+#[cfg(not(unix))]
+pub fn serve_gui(_state: std::sync::Arc<Mutex<State>>, _task_file: PathBuf) -> Result<(), Error> {
+    Err(io::Error::other("--gui is only supported on unix").into())
 }
 
 fn mcp_pass(command: Commands, state: &Mutex<State>) -> Result<TaskFile, Error> {

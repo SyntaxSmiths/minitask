@@ -1,0 +1,945 @@
+#!/usr/bin/env gjs
+
+declare const imports: any;
+declare const TextEncoder: {
+  new (): {
+    encode(input: string): Uint8Array;
+  };
+};
+declare const TextDecoder: {
+  new (): {
+    decode(input: Uint8Array): string;
+  };
+};
+declare function logError(error: unknown, message?: string): void;
+
+type GtkModule = any;
+type GioModule = any;
+type GLibModule = any;
+type GioUnixModule = any;
+type GObjectModule = any;
+
+imports.gi.versions.Gtk = "4.0";
+
+const Gtk: GtkModule = imports.gi.Gtk;
+const Gio: GioModule = imports.gi.Gio;
+const GioUnix: GioUnixModule = imports.gi.GioUnix;
+const GLib: GLibModule = imports.gi.GLib;
+const GObject: GObjectModule = imports.gi.GObject;
+
+
+const APPLICATION_ID = "ai.minitask.Gui";
+const TASK_FILE = "tasks.toml";
+const PROTOCOL_VERSION = "";
+const TASK_STATES = ["todo", "in-progress", "review", "done", "blocked"] as const;
+
+interface JsonMap {
+  [key: string]: JsonValue;
+}
+
+type JsonValue = null | boolean | number | string | JsonMap | JsonValue[];
+type RpcId = number;
+type TaskState = (typeof TASK_STATES)[number];
+type ClickHandler = () => void;
+type TaskMoveHandler = (taskId: string, nextState: TaskState) => void;
+
+interface RpcRequest {
+  jsonrpc: "2.0";
+  id: RpcId;
+  method: string;
+  params?: JsonMap;
+}
+
+interface RpcNotification {
+  jsonrpc: "2.0";
+  method: string;
+  params?: JsonMap;
+}
+
+interface RpcSuccess {
+  jsonrpc: "2.0";
+  id: RpcId;
+  result: JsonValue;
+}
+
+interface RpcErrorBody {
+  code: number;
+  message: string;
+  data?: JsonValue;
+}
+
+interface RpcFailure {
+  jsonrpc: "2.0";
+  id: RpcId;
+  error: RpcErrorBody;
+}
+
+type RpcMessage = RpcSuccess | RpcFailure;
+
+interface ContentBlock {
+  type?: string;
+  text?: string;
+}
+
+interface ToolCallEnvelope {
+  content?: ContentBlock[];
+  structuredContent?: JsonValue;
+  isError?: boolean;
+}
+
+interface TaskRecord {
+  name: string;
+  state: string;
+  content: string;
+  depends_on: string[];
+  epic: string[];
+}
+
+interface TaskListResult {
+  tasks: TaskRecord[];
+}
+
+interface PendingRequest {
+  resolve: (value: JsonValue) => void;
+  reject: (reason?: unknown) => void;
+}
+
+interface WidgetProps {
+  [key: string]: unknown;
+}
+
+interface WidgetSpec<TWidget = any> {
+  widget: TWidget;
+}
+
+interface BoxSpec extends WidgetSpec {
+  children?: WidgetSpec[];
+}
+
+interface SingleChildSpec extends WidgetSpec {
+  child?: WidgetSpec;
+}
+
+interface ScrolledWindowSpec extends SingleChildSpec {}
+
+interface WindowSpec extends SingleChildSpec {}
+
+interface ButtonSpec extends WidgetSpec {
+  onClicked?: ClickHandler;
+}
+
+interface UiRefs {
+  window: any;
+  taskEntry: any;
+  addButton: any;
+  refreshButton: any;
+  stateFilter: any;
+  statusLabel: any;
+  taskList: any;
+}
+
+interface FileWatchOptions {
+  path: string;
+  onChange: () => void;
+}
+
+interface FileVersion {
+  etag: string;
+  size: number;
+}
+
+function envString(name: string): string {
+  const value = GLib.getenv(name);
+  return value ?? "";
+}
+
+function decodeBytes(bytes: Uint8Array): string {
+  return new TextDecoder().decode(bytes);
+}
+
+function encodeLine(message: JsonValue): Uint8Array {
+  const encoder = new TextEncoder();
+  return encoder.encode(`${JSON.stringify(message)}\n`);
+}
+
+function isJsonMap(value: JsonValue | undefined): value is JsonMap {
+  return value !== null && value !== undefined && !Array.isArray(value) && typeof value === "object";
+}
+
+function asArray(value: JsonValue | undefined): JsonValue[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function asString(value: JsonValue | undefined, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function asStringArray(value: JsonValue | undefined): string[] {
+  return asArray(value).filter((item): item is string => typeof item === "string");
+}
+
+function parseToolPayload(result: ToolCallEnvelope): JsonValue {
+  if (result.structuredContent !== undefined) {
+    return result.structuredContent;
+  }
+
+  const text = (result.content ?? [])
+    .filter((item) => item.type === "text" && typeof item.text === "string")
+    .map((item) => item.text ?? "")
+    .join("\n")
+    .trim();
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as JsonValue;
+  } catch {
+    return text;
+  }
+}
+
+function toTaskRecord(value: JsonValue): TaskRecord {
+  const object = isJsonMap(value) ? value : {};
+  return {
+    name: asString(object.name),
+    state: asString(object.state),
+    content: asString(object.content),
+    depends_on: asStringArray(object.depends_on),
+    epic: asStringArray(object.epic),
+  };
+}
+
+function toTaskListResult(value: JsonValue): TaskListResult {
+  if (Array.isArray(value)) {
+    return { tasks: value.map(toTaskRecord) };
+  }
+
+  const object = isJsonMap(value) ? value : {};
+  const tasks = Array.isArray(object.tasks) ? object.tasks.map(toTaskRecord) : [];
+  return { tasks };
+}
+
+function applyProps(widget: any, props?: WidgetProps): any {
+  if (!props) {
+    return widget;
+  }
+
+  for (const [key, value] of Object.entries(props)) {
+    if (key === "cssClasses" && Array.isArray(value)) {
+      for (const cssClass of value) {
+        widget.add_css_class(cssClass);
+      }
+      continue;
+    }
+
+    if (typeof widget[`set_${key}`] === "function") {
+      widget[`set_${key}`](value);
+      continue;
+    }
+
+    widget[key] = value;
+  }
+
+  return widget;
+}
+
+function box(props: WidgetProps = {}, children: WidgetSpec[] = []): BoxSpec {
+  const widget = applyProps(new Gtk.Box(), props);
+  return { widget, children };
+}
+
+function label(props: WidgetProps = {}): WidgetSpec {
+  return { widget: applyProps(new Gtk.Label(), props) };
+}
+
+function entry(props: WidgetProps = {}): WidgetSpec {
+  return { widget: applyProps(new Gtk.Entry(), props) };
+}
+
+function button(props: WidgetProps = {}, onClicked?: ClickHandler): ButtonSpec {
+  const widget = applyProps(new Gtk.Button(), props);
+  return { widget, onClicked };
+}
+
+function listBox(props: WidgetProps = {}): WidgetSpec {
+  return { widget: applyProps(new Gtk.ListBox(), props) };
+}
+
+function dropDown(strings: string[], props: WidgetProps = {}): WidgetSpec {
+  const widget = Gtk.DropDown.new_from_strings(strings);
+  return { widget: applyProps(widget, props) };
+}
+
+function scrolledWindow(props: WidgetProps = {}, child?: WidgetSpec): ScrolledWindowSpec {
+  const widget = applyProps(new Gtk.ScrolledWindow(), props);
+  return { widget, child };
+}
+
+function applicationWindow(props: WidgetProps = {}, child?: WidgetSpec): WindowSpec {
+  const widget = applyProps(new Gtk.ApplicationWindow(), props);
+  return { widget, child };
+}
+
+function mount(spec: WidgetSpec): any {
+  const boxSpec = spec as BoxSpec;
+  if (boxSpec.children) {
+    for (const child of boxSpec.children) {
+      spec.widget.append(child.widget);
+      mount(child);
+    }
+    return spec.widget;
+  }
+
+  const singleChildSpec = spec as SingleChildSpec;
+  if (singleChildSpec.child) {
+    mount(singleChildSpec.child);
+    spec.widget.set_child(singleChildSpec.child.widget);
+    return spec.widget;
+  }
+
+  const buttonSpec = spec as ButtonSpec;
+  if (buttonSpec.onClicked) {
+    spec.widget.connect("clicked", buttonSpec.onClicked);
+  }
+
+  return spec.widget;
+}
+
+class JsonLineChannel {
+  private readonly input: any;
+  private readonly output: any;
+  private readonly errorInput: any;
+  private buffer = "";
+  private started = false;
+  private readonly onMessage: (message: RpcMessage) => void;
+
+  constructor(input: any, output: any, errorInput: any, onMessage: (message: RpcMessage) => void) {
+    this.input = input;
+    this.output = output;
+    this.errorInput = errorInput;
+    this.onMessage = onMessage;
+  }
+
+  start(): void {
+    if (this.started) {
+      return;
+    }
+
+    this.started = true;
+    this.readStdout();
+    this.readStderr();
+  }
+
+  async send(message: RpcRequest | RpcNotification): Promise<void> {
+    const bytes = encodeLine(message as unknown as JsonValue);
+
+    await new Promise<void>((resolve, reject) => {
+      this.output.write_bytes_async(
+        new GLib.Bytes(bytes),
+        GLib.PRIORITY_DEFAULT,
+        null,
+        (_stream: unknown, result: unknown) => {
+          try {
+            this.output.write_bytes_finish(result);
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        },
+      );
+    });
+  }
+
+  private readStdout(): void {
+    const pump = () => {
+      this.input.read_bytes_async(4096, GLib.PRIORITY_DEFAULT, null, (_stream: unknown, result: unknown) => {
+        try {
+          const bytes = this.input.read_bytes_finish(result);
+          const chunk = bytes.toArray();
+
+          if (chunk.length === 0) {
+            return;
+          }
+
+          this.buffer += decodeBytes(chunk);
+          this.drainBuffer();
+          pump();
+        } catch (error) {
+          logError(error, "minitask stdout");
+        }
+      });
+    };
+
+    pump();
+  }
+
+  private readStderr(): void {
+    const stream = new Gio.DataInputStream({ base_stream: this.errorInput });
+
+    const pump = () => {
+      stream.read_line_async(GLib.PRIORITY_DEFAULT, null, (_source: unknown, result: unknown) => {
+        try {
+          const [line] = stream.read_line_finish_utf8(result);
+          if (line === null) {
+            return;
+          }
+          logError(new Error(line), "minitask stderr");
+          pump();
+        } catch {
+        }
+      });
+    };
+
+    pump();
+  }
+
+  private drainBuffer(): void {
+    while (true) {
+      const newlineIndex = this.buffer.indexOf("\n");
+      if (newlineIndex === -1) {
+        return;
+      }
+
+      const line = this.buffer.slice(0, newlineIndex).trim();
+      this.buffer = this.buffer.slice(newlineIndex + 1);
+      if (!line) {
+        continue;
+      }
+
+      this.onMessage(JSON.parse(line) as RpcMessage);
+    }
+  }
+}
+
+class McpConnection {
+  private readonly channel: JsonLineChannel;
+  private readonly pending = new Map<RpcId, PendingRequest>();
+  private nextId = 1;
+  private ready = false;
+
+  constructor(_binaryPath: string, _taskFile: string) {
+    const socketFd = envString("MINITASK_GUI_SOCKET_FD");
+    if (!socketFd) {
+      throw new Error("MINITASK_GUI_SOCKET_FD is required");
+    }
+
+    const fd = Number.parseInt(socketFd, 10);
+    const input = new GioUnix.InputStream({ fd, close_fd: false });
+    const output = new GioUnix.OutputStream({ fd, close_fd: false });
+    const errorInput = new Gio.MemoryInputStream();
+    this.channel = new JsonLineChannel(input, output, errorInput, (message) => {
+      this.handleMessage(message);
+    });
+  }
+
+  async initialize(): Promise<void> {
+    if (this.ready) {
+      return;
+    }
+
+    this.channel.start();
+    await this.request("initialize", {
+      protocolVersion: PROTOCOL_VERSION,
+      capabilities: {},
+      clientInfo: {
+        name: "gjs-minitask-gui",
+        version: "0.1.0",
+      },
+    });
+    await this.notify("notifications/initialized", {});
+    this.ready = true;
+  }
+
+  async request(method: string, params?: JsonMap): Promise<JsonValue> {
+    const id = this.nextId;
+    this.nextId += 1;
+
+    const message: RpcRequest = {
+      jsonrpc: "2.0",
+      id,
+      method,
+      params,
+    };
+
+    return new Promise<JsonValue>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.channel.send(message).catch((error) => {
+        this.pending.delete(id);
+        reject(error);
+      });
+    });
+  }
+
+  async notify(method: string, params?: JsonMap): Promise<void> {
+    const message: RpcNotification = {
+      jsonrpc: "2.0",
+      method,
+      params,
+    };
+    await this.channel.send(message);
+  }
+
+  private handleMessage(message: RpcMessage): void {
+    if (!("id" in message) || typeof message.id !== "number") {
+      return;
+    }
+
+    const pending = this.pending.get(message.id);
+    if (!pending) {
+      return;
+    }
+
+    this.pending.delete(message.id);
+    if ("error" in message) {
+      pending.reject(new Error(message.error.message));
+      return;
+    }
+
+    pending.resolve(message.result);
+  }
+}
+
+class MinitaskService {
+  private readonly connection: McpConnection;
+
+  constructor(connection: McpConnection) {
+    this.connection = connection;
+  }
+
+  async connect(): Promise<void> {
+    await this.connection.initialize();
+  }
+
+  async listTasks(stateFilter = ""): Promise<TaskRecord[]> {
+    const args: JsonMap = {
+      verbose: true,
+    };
+    if (stateFilter) {
+      args.state = stateFilter;
+    }
+
+    const result = await this.connection.request("tools/call", {
+      name: "list",
+      arguments: args,
+    });
+
+    if (!isJsonMap(result)) {
+      return [];
+    }
+
+    const payload = parseToolPayload(result as unknown as ToolCallEnvelope);
+    return toTaskListResult(payload).tasks;
+  }
+
+  async createTask(content: string): Promise<void> {
+    await this.connection.request("tools/call", {
+      name: "new",
+      arguments: { content },
+    });
+  }
+
+  async updateTaskState(taskId: string, state: TaskState): Promise<void> {
+    await this.connection.request("tools/call", {
+      name: "edit-state",
+      arguments: {
+        task_id: taskId,
+        state,
+      },
+    });
+  }
+}
+
+class TaskFileWatcher {
+  private readonly file: any;
+  private monitor: any = null;
+  private version: FileVersion | null = null;
+  private ignoreNextChange = false;
+  private readonly onChange: () => void;
+
+  constructor(options: FileWatchOptions) {
+    this.file = Gio.File.new_for_path(options.path);
+    this.onChange = options.onChange;
+    this.version = this.readVersion();
+  }
+
+  start(): void {
+    if (this.monitor) {
+      return;
+    }
+
+    this.monitor = this.file.monitor_file(Gio.FileMonitorFlags.NONE, null);
+    this.monitor.connect("changed", (_monitor: unknown, _file: unknown, _otherFile: unknown, eventType: number) => {
+      if (!this.shouldReload(eventType)) {
+        return;
+      }
+
+      const nextVersion = this.readVersion();
+      if (!this.didVersionChange(nextVersion)) {
+        return;
+      }
+
+      this.version = nextVersion;
+      if (this.ignoreNextChange) {
+        this.ignoreNextChange = false;
+        return;
+      }
+      this.onChange();
+    });
+  }
+
+  markOwnWrite(): void {
+    this.ignoreNextChange = true;
+  }
+
+  refreshVersion(): void {
+    this.version = this.readVersion();
+  }
+
+  private shouldReload(eventType: number): boolean {
+    return eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT;
+  }
+
+  private readVersion(): FileVersion | null {
+    try {
+      const info = this.file.query_info(
+        "standard::size,etag::value",
+        Gio.FileQueryInfoFlags.NONE,
+        null,
+      );
+      return {
+        etag: String(info.get_attribute_string("etag::value") ?? ""),
+        size: info.get_size(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private didVersionChange(nextVersion: FileVersion | null): boolean {
+    if (this.version === null || nextVersion === null) {
+      return this.version !== nextVersion;
+    }
+
+    return this.version.etag !== nextVersion.etag ||
+      this.version.size !== nextVersion.size;
+  }
+}
+
+class TaskRowFactory {
+  create(task: TaskRecord, onMove: TaskMoveHandler): any {
+    const titleLabel = label({
+      label: task.name,
+      xalign: 0,
+      hexpand: true,
+      cssClasses: ["heading"],
+    });
+    const stateLabel = label({
+      label: task.state,
+      xalign: 1,
+      cssClasses: ["dim-label"],
+    });
+
+    const metadataChildren: WidgetSpec[] = [];
+    if (task.epic.length > 0) {
+      metadataChildren.push(label({ label: `epic: ${task.epic.join(", ")}`, xalign: 0, wrap: true }));
+    }
+    if (task.depends_on.length > 0) {
+      metadataChildren.push(label({ label: `depends on: ${task.depends_on.join(", ")}`, xalign: 0, wrap: true }));
+    }
+
+    const actionButtons = TASK_STATES.map((nextState) => {
+      const action = button(
+        {
+          label: nextState,
+          sensitive: true,
+          cssClasses: nextState === task.state ? ["suggested-action"] : [],
+        },
+        () => {
+          onMove(task.name, nextState);
+        },
+      );
+      mount(action);
+      return action;
+    });
+
+    const contentTree = box(
+      {
+        orientation: Gtk.Orientation.VERTICAL,
+        spacing: 6,
+        margin_top: 10,
+        margin_bottom: 10,
+        margin_start: 10,
+        margin_end: 10,
+      },
+      [
+        box(
+          {
+            orientation: Gtk.Orientation.HORIZONTAL,
+            spacing: 12,
+          },
+          [titleLabel, stateLabel],
+        ),
+        ...metadataChildren,
+        label({ label: task.content, xalign: 0, wrap: true }),
+        box(
+          {
+            orientation: Gtk.Orientation.HORIZONTAL,
+            spacing: 6,
+          },
+          actionButtons,
+        ),
+      ],
+    );
+
+    const row = new Gtk.ListBoxRow();
+    row.set_child(mount(contentTree));
+    return row;
+  }
+}
+
+class MainWindowFactory {
+  create(app: any): UiRefs {
+    const taskEntry = entry({
+      hexpand: true,
+      placeholder_text: "new task content",
+    });
+    const addButton = button({ label: "add" });
+    const refreshButton = button({ label: "refresh" });
+    const stateFilter = dropDown(["all", ...TASK_STATES], {
+      selected: 0,
+    });
+    const statusLabel = label({
+      label: "connecting...",
+      xalign: 0,
+    });
+    const taskList = listBox({
+      selection_mode: Gtk.SelectionMode.NONE,
+    });
+
+    const tree = applicationWindow(
+      {
+        application: app,
+        title: "minitask",
+        default_width: 960,
+        default_height: 720,
+      },
+      box(
+        {
+          orientation: Gtk.Orientation.VERTICAL,
+          spacing: 12,
+          margin_top: 12,
+          margin_bottom: 12,
+          margin_start: 12,
+          margin_end: 12,
+        },
+        [
+          box(
+            {
+              orientation: Gtk.Orientation.HORIZONTAL,
+              spacing: 6,
+            },
+            [taskEntry, stateFilter, addButton, refreshButton],
+          ),
+          statusLabel,
+          scrolledWindow(
+            {
+              hexpand: true,
+              vexpand: true,
+            },
+            taskList,
+          ),
+        ],
+      ),
+    );
+
+    const window = mount(tree);
+    return {
+      window,
+      taskEntry: taskEntry.widget,
+      addButton: addButton.widget,
+      refreshButton: refreshButton.widget,
+      stateFilter: stateFilter.widget,
+      statusLabel: statusLabel.widget,
+      taskList: taskList.widget,
+    };
+  }
+}
+
+class MainWindowController {
+  private readonly ui: UiRefs;
+  private readonly service: MinitaskService;
+  private readonly rowFactory: TaskRowFactory;
+  private readonly fileWatcher: TaskFileWatcher;
+  private reloadInFlight = false;
+  private reloadQueued = false;
+  private stateFilter = "";
+
+  constructor(ui: UiRefs, service: MinitaskService, rowFactory: TaskRowFactory, taskFile: string) {
+    this.ui = ui;
+    this.service = service;
+    this.rowFactory = rowFactory;
+    this.fileWatcher = new TaskFileWatcher({
+      path: taskFile,
+      onChange: () => {
+        void this.reloadFromFileEvent();
+      },
+    });
+  }
+
+  bind(): void {
+    this.ui.addButton.connect("clicked", () => {
+      void this.handleCreateTask();
+    });
+    this.ui.refreshButton.connect("clicked", () => {
+      void this.reload();
+    });
+    this.ui.stateFilter.connect("notify::selected", () => {
+      this.stateFilter = this.readStateFilter();
+      void this.reload();
+    });
+  }
+
+  async initialize(): Promise<void> {
+    this.setStatus("connecting...");
+    try {
+      await this.service.connect();
+      await this.reload();
+      this.fileWatcher.start();
+    } catch (error) {
+      this.showError(error);
+    }
+  }
+
+  private async handleCreateTask(): Promise<void> {
+    const content = this.ui.taskEntry.get_text().trim();
+    if (!content) {
+      return;
+    }
+
+    this.setBusy(true, "creating task...");
+    try {
+      this.fileWatcher.markOwnWrite();
+      await this.service.createTask(content);
+      this.fileWatcher.refreshVersion();
+      this.ui.taskEntry.set_text("");
+      await this.reload();
+      this.setStatus("task created");
+    } catch (error) {
+      this.showError(error);
+    } finally {
+      this.setBusy(false, "");
+    }
+  }
+
+  private async handleMoveTask(taskId: string, nextState: TaskState): Promise<void> {
+    this.setBusy(true, `updating ${taskId}...`);
+    try {
+      this.fileWatcher.markOwnWrite();
+      await this.service.updateTaskState(taskId, nextState);
+      this.fileWatcher.refreshVersion();
+      await this.reload();
+      this.setStatus(`${taskId} -> ${nextState}`);
+    } catch (error) {
+      this.showError(error);
+    } finally {
+      this.setBusy(false, "");
+    }
+  }
+
+  private async reload(): Promise<void> {
+    if (this.reloadInFlight) {
+      this.reloadQueued = true;
+      return;
+    }
+
+    this.reloadInFlight = true;
+    this.setBusy(true, "loading tasks...");
+    try {
+      const tasks = await this.service.listTasks(this.stateFilter);
+      this.fileWatcher.refreshVersion();
+      this.renderTasks(tasks);
+      this.setStatus(`${tasks.length} task(s)`);
+    } catch (error) {
+      this.showError(error);
+    } finally {
+      this.reloadInFlight = false;
+      this.setBusy(false, "");
+      if (this.reloadQueued) {
+        this.reloadQueued = false;
+        await this.reload();
+      }
+    }
+  }
+
+  private async reloadFromFileEvent(): Promise<void> {
+    if (this.reloadInFlight) {
+      return;
+    }
+    await this.reload();
+  }
+
+  private readStateFilter(): string {
+    const selected = this.ui.stateFilter.get_selected_item();
+    const text = selected ? selected.get_string() : "all";
+    return text === "all" ? "" : text;
+  }
+
+  private renderTasks(tasks: TaskRecord[]): void {
+    let child = this.ui.taskList.get_first_child();
+    while (child) {
+      const next = child.get_next_sibling();
+      this.ui.taskList.remove(child);
+      child = next;
+    }
+
+    for (const task of [...tasks].reverse()) {
+      this.ui.taskList.append(this.rowFactory.create(task, (taskId, nextState) => {
+        void this.handleMoveTask(taskId, nextState);
+      }));
+    }
+  }
+
+  private setBusy(isBusy: boolean, message: string): void {
+    this.ui.addButton.set_sensitive(!isBusy);
+    this.ui.refreshButton.set_sensitive(!isBusy);
+    this.ui.taskEntry.set_sensitive(!isBusy);
+    this.ui.stateFilter.set_sensitive(!isBusy);
+    if (message) {
+      this.setStatus(message);
+    }
+  }
+
+  private setStatus(message: string): void {
+    this.ui.statusLabel.set_label(message);
+  }
+
+  private showError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.setStatus(`error: ${message}`);
+  }
+}
+
+const MinitaskApplication = GObject.registerClass(
+  class MinitaskApplication extends Gtk.Application {
+    constructor() {
+      super({ application_id: APPLICATION_ID });
+    }
+
+    vfunc_activate(): void {
+      const taskFile = envString("MINITASK_GUI_TASK_FILE") || GLib.build_filenamev([GLib.get_current_dir(), TASK_FILE]);
+      const connection = new McpConnection(taskFile, taskFile);
+      const service = new MinitaskService(connection);
+      const ui = new MainWindowFactory().create(this);
+      const controller = new MainWindowController(ui, service, new TaskRowFactory(), taskFile);
+
+      controller.bind();
+      ui.window.present();
+      void controller.initialize();
+    }
+  },
+);
+
+const app = new MinitaskApplication();
+app.run([]);
