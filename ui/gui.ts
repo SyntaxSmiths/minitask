@@ -754,6 +754,7 @@ class TaskRowFactory {
     contentArea.append(contentLabel);
 
     const showEditor = (): void => {
+      const labelHeight = contentLabel.get_allocated_height();
       contentArea.remove(contentLabel);
 
       const contentView: GtkTextView = new Gtk.TextView({
@@ -766,10 +767,16 @@ class TaskRowFactory {
 
       const contentScroller: GtkScrolledWindow = new Gtk.ScrolledWindow({
         hexpand: true,
-        min_content_height: 96,
-        max_content_height: 320,
+        min_content_height: labelHeight,
+        max_content_height: labelHeight,
       });
       contentScroller.set_child(contentView);
+
+      const restoreNormalView = (): void => {
+        contentArea.remove(contentScroller);
+        contentArea.remove(buttonBox);
+        contentArea.append(contentLabel);
+      };
 
       const saveButton: GtkButton = new Gtk.Button({
         label: "save",
@@ -777,11 +784,29 @@ class TaskRowFactory {
       saveButton.connect("clicked", () => {
         const contentBuffer = contentView.get_buffer();
         const [start, end] = contentBuffer.get_bounds();
-        onSaveContent(task.name, contentBuffer.get_text(start, end, false));
+        const newContent = contentBuffer.get_text(start, end, false);
+        task.content = newContent;
+        contentLabel.set_label(newContent);
+        onSaveContent(task.name, newContent);
+        restoreNormalView();
       });
 
+      const discardButton: GtkButton = new Gtk.Button({
+        label: "discard",
+      });
+      discardButton.connect("clicked", () => {
+        restoreNormalView();
+      });
+
+      const buttonBox: GtkBox = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 6,
+      });
+      buttonBox.append(saveButton);
+      buttonBox.append(discardButton);
+
       contentArea.append(contentScroller);
-      contentArea.append(saveButton);
+      contentArea.append(buttonBox);
     };
 
     const clickController = new Gtk.GestureClick();
