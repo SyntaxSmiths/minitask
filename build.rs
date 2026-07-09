@@ -5,29 +5,11 @@ fn main() {
     println!("cargo:rerun-if-changed=ui/gui.ts");
 
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR missing"));
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR missing"));
+    let manifest_dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR missing"));
     let source = manifest_dir.join("ui").join("gui.ts");
-    let compiled = manifest_dir.join("ui").join("gui.js");
+    let compiled = out_dir.join("gui.js");
     let embedded = out_dir.join("embedded_gui.rs");
-
-    let status = Command::new("tsc")
-        .arg("--pretty")
-        .arg("false")
-        .arg("--noEmit")
-        .arg("--target")
-        .arg("ES2022")
-        .arg("--module")
-        .arg("none")
-        .arg("--lib")
-        .arg("ES2022")
-        .arg(&source)
-        .status();
-
-    match status {
-        Ok(status) if status.success() => {}
-        Ok(status) => panic!("tsc failed with status: {status}"),
-        Err(error) => panic!("failed to run tsc: {error}"),
-    }
 
     let status = Command::new("tsc")
         .arg("--target")
@@ -47,10 +29,9 @@ fn main() {
         Err(error) => panic!("failed to run tsc emit step: {error}"),
     }
 
-    let gui_js = std::fs::read_to_string(&compiled).expect("failed to read compiled gui.js");
     std::fs::write(
         embedded,
-        format!("pub const EMBEDDED_GUI_JS: &str = r###\"{}\"###;\n", gui_js),
+        format!("pub const EMBEDDED_GUI_JS: &str = include_str!(concat!(env!(\"OUT_DIR\"), \"/gui.js\"));\n"),
     )
     .expect("failed to write embedded_gui.rs");
 }

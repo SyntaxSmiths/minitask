@@ -1193,7 +1193,7 @@ Assessment:
 - Project-level designs broken: No
 
 Residual note:
-- The task file contains appended reviewer history inside `tasks.toml`, but per your instruction I treated the live MCP task record as authoritative and inspected source directly rather than relying on embedded summaries. Under that standard, and with local verification passing, I do not see a reason to fail `TASK-17`."""
+- The task file contains appended reviewer history inside `tasks.toml`, but per your instruction I treated the live MCP task record as authoritative and inspected source directly rather than relying on embedded summaries. Under that standard, and with local verification passing, I do not see a reason to fail `TASK-17`.dadadadadadadadadadadadadadada"""
 
 [[tasks]]
 name = "TASK-18"
@@ -1350,7 +1350,7 @@ Conclusion:
 - Project-level designs broken: No.
 - Relevant local verification failing: No.
 
-The task is correctly completed as a truthful architectural assessment that recommends not migrating yet under the current build and launch design.'''
+The task is correctly completed as a truthful architectural assessment that recommends not migrating yet under the current build and launch design.dadada'''
 
 [[tasks]]
 name = "TASK-19"
@@ -1494,7 +1494,7 @@ Verification:
 - `cargo build` passed
 - `timeout 5s ./target/debug/minitask --gui --file /home/eddy/src/minitask/tasks.toml` stayed running until timeout
 - User visual verification: dark mode now works correctly
-'''
+testtest'''
 
 [[tasks]]
 name = "TASK-20"
@@ -1536,7 +1536,7 @@ Verification:
 
 [[tasks]]
 name = "TASK-21"
-state = "todo"
+state = "in-progress"
 depends_on = []
 epic = []
 content = """
@@ -1576,4 +1576,4 @@ Verification and test:
 - Verify the filtering path applies state filtering and epic wildcard filtering through the GUI flow.
 - Do not run `tsc` directly.
 - Do not start the GUI via `gjs` directly.
-- Startup-only GUI verification is sufficient in this environment."""
+- Startup-only GUI verification is sufficient in this environment.testtesttesttesttesttesttesttestsdfaerrfgtestsdfaerrfgbutnow"""

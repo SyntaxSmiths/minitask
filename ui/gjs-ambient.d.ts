@@ -215,7 +215,10 @@ export interface GioFileMonitor {
 
 export interface GioFile {
     monitor_file(flags: number, cancellable: GioCancellable | null): GioFileMonitor;
-    query_info(attributes: string, flags: number, cancellable: GioCancellable | null): GioFileInfoLike;
+  query_info(attributes: string, flags: number, cancellable: GioCancellable | null): GioFileInfoLike;
+  get_parent(): any;
+  get_basename(): any;
+  monitor_directory(_first: any,_second: any): any;
   }
 
 export interface GioFileStatic {
@@ -232,7 +235,17 @@ export interface GioNamespace {
       NONE: number;
     };
     FileMonitorEvent: {
+      CHANGED: number;
       CHANGES_DONE_HINT: number;
+      DELETED: number;
+      CREATED: number;
+      ATTRIBUTE_CHANGED: number;
+      PRE_UNMOUNT: number;
+      UNMOUNTED: number;
+      MOVED: number;
+      RENAMED: number;
+      MOVED_IN: number;
+      MOVED_OUT: number;
     };
     FileQueryInfoFlags: {
       NONE: number;
@@ -271,6 +284,7 @@ export interface GLibNamespace {
     getenv(name: string): string | null;
     PRIORITY_DEFAULT: number;
     Bytes: GLibBytesStatic;
+    timeout_add(priority: number, interval: number, callback: () => boolean): number;
   }
 
 export interface GObjectNamespace {

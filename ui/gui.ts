@@ -43,7 +43,13 @@ const GObject: GObjectModule = imports.gi.GObject;
 const ByteArray = imports.byteArray;
 const APPLICATION_ID = "ai.minitask.Gui";
 const PROTOCOL_VERSION = "2024-11-05";
-const TASK_STATES = ["todo", "in-progress", "review", "done", "blocked"] as const;
+const TASK_STATES = [
+  "todo",
+  "in-progress",
+  "review",
+  "done",
+  "blocked",
+] as const;
 
 function syncSystemColorScheme(): void {
   Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.DEFAULT;
@@ -184,7 +190,12 @@ function encodeLine(message: JsonValue): Uint8Array {
 }
 
 function isJsonMap(value: JsonValue | undefined): value is JsonMap {
-  return value !== null && value !== undefined && !Array.isArray(value) && typeof value === "object";
+  return (
+    value !== null &&
+    value !== undefined &&
+    !Array.isArray(value) &&
+    typeof value === "object"
+  );
 }
 
 function asArray(value: JsonValue | undefined): JsonValue[] {
@@ -196,14 +207,18 @@ function asString(value: JsonValue | undefined, fallback = ""): string {
 }
 
 function asStringArray(value: JsonValue | undefined): string[] {
-  return asArray(value).filter((item): item is string => typeof item === "string");
+  return asArray(value).filter(
+    (item): item is string => typeof item === "string",
+  );
 }
 
 function isRpcFailure(value: JsonMap): boolean {
-  return typeof value.id === "number" &&
+  return (
+    typeof value.id === "number" &&
     isJsonMap(value.error) &&
     typeof value.error.code === "number" &&
-    typeof value.error.message === "string";
+    typeof value.error.message === "string"
+  );
 }
 
 function isRpcSuccess(value: JsonMap): boolean {
@@ -261,10 +276,11 @@ function toTaskListResult(value: JsonValue): TaskListResult {
   }
 
   const object = isJsonMap(value) ? value : {};
-  const tasks = Array.isArray(object.tasks) ? object.tasks.map(toTaskRecord) : [];
+  const tasks = Array.isArray(object.tasks)
+    ? object.tasks.map(toTaskRecord)
+    : [];
   return { tasks };
 }
-
 
 class JsonLineChannel {
   private readonly input: GioInputStream;
@@ -275,7 +291,11 @@ class JsonLineChannel {
   private started = false;
   private readonly onMessage: (message: RpcMessage) => void;
 
-  constructor(input: GioInputStream, output: GioOutputStream, onMessage: (message: RpcMessage) => void) {
+  constructor(
+    input: GioInputStream,
+    output: GioOutputStream,
+    onMessage: (message: RpcMessage) => void,
+  ) {
     this.input = input;
     this.output = output;
     this.cancellable = new Gio.Cancellable();
@@ -334,24 +354,29 @@ class JsonLineChannel {
         return;
       }
 
-      this.input.read_bytes_async(4096, GLib.PRIORITY_DEFAULT, this.cancellable, (_stream: unknown, result: unknown) => {
-        try {
-          const bytes = this.input.read_bytes_finish(result);
-          const chunk = bytes.toArray();
+      this.input.read_bytes_async(
+        4096,
+        GLib.PRIORITY_DEFAULT,
+        this.cancellable,
+        (_stream: unknown, result: unknown) => {
+          try {
+            const bytes = this.input.read_bytes_finish(result);
+            const chunk = bytes.toArray();
 
-          if (chunk.length === 0) {
-            return;
-          }
+            if (chunk.length === 0) {
+              return;
+            }
 
-          this.buffer += decodeBytes(chunk);
-          this.drainBuffer();
-          pump();
-        } catch (error) {
-          if (!this.closed && !this.isExpectedCloseError(error)) {
-            logError(error, "minitask stdout");
+            this.buffer += decodeBytes(chunk);
+            this.drainBuffer();
+            pump();
+          } catch (error) {
+            if (!this.closed && !this.isExpectedCloseError(error)) {
+              logError(error, "minitask stdout");
+            }
           }
-        }
-      });
+        },
+      );
     };
 
     pump();
@@ -381,7 +406,10 @@ class JsonLineChannel {
     try {
       const parsed = JSON.parse(line) as JsonValue;
       if (!isJsonMap(parsed) || !isRpcMessage(parsed)) {
-        logError(new Error(`Ignoring unexpected MCP message: ${line}`), "minitask protocol");
+        logError(
+          new Error(`Ignoring unexpected MCP message: ${line}`),
+          "minitask protocol",
+        );
         return null;
       }
 
@@ -401,8 +429,10 @@ class JsonLineChannel {
       return false;
     }
 
-    return error.message.includes("Operation was cancelled")
-      || error.message.includes("Stream is already closed");
+    return (
+      error.message.includes("Operation was cancelled") ||
+      error.message.includes("Stream is already closed")
+    );
   }
 }
 
@@ -416,7 +446,9 @@ class McpConnection {
     const socketFd = requireEnvString("MINITASK_GUI_SOCKET_FD");
     const fd = Number.parseInt(socketFd, 10);
     if (!Number.isInteger(fd) || fd < 0) {
-      throw new Error(`MINITASK_GUI_SOCKET_FD must be a non-negative integer, got: ${socketFd}`);
+      throw new Error(
+        `MINITASK_GUI_SOCKET_FD must be a non-negative integer, got: ${socketFd}`,
+      );
     }
 
     const input = new GioUnix.InputStream({ fd, close_fd: true });
@@ -571,11 +603,16 @@ class TaskFileWatcher {
   private version: FileVersion | null = null;
   private ignoreNextChange = false;
   private readonly onChange: () => void;
+  private readonly directory: GioFile;
+  private readonly filename: string;
 
   constructor(options: FileWatchOptions) {
     this.file = Gio.File.new_for_path(options.path);
+
+    this.directory = this.file.get_parent()!;
+    this.filename = this.file.get_basename();
+
     this.onChange = options.onChange;
-    this.version = this.readVersion();
   }
 
   start(): void {
@@ -583,23 +620,25 @@ class TaskFileWatcher {
       return;
     }
 
-    this.monitor = this.file.monitor_file(Gio.FileMonitorFlags.NONE, null);
-    this.monitor.connect("changed", (_monitor: unknown, _file: unknown, _otherFile: unknown, eventType: number) => {
-      if (!this.shouldReload(eventType)) {
+    this.monitor = this.directory.monitor_directory(
+      Gio.FileMonitorFlags.NONE,
+      null,
+    );
+
+    this.monitor.connect("changed", (_monitor, file, _other, eventType) => {
+      if (file?.get_basename() !== this.filename) {
         return;
       }
 
-      const nextVersion = this.readVersion();
-      if (!this.didVersionChange(nextVersion)) {
-        return;
-      }
+      logError(new Error(`event ${eventType}`));
 
-      this.version = nextVersion;
-      if (this.ignoreNextChange) {
-        this.ignoreNextChange = false;
-        return;
+      if (
+        eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT ||
+        eventType === Gio.FileMonitorEvent.CREATED ||
+        eventType === Gio.FileMonitorEvent.MOVED_IN
+      ) {
+        this.onChange();
       }
-      this.onChange();
     });
   }
 
@@ -636,8 +675,10 @@ class TaskFileWatcher {
       return this.version !== nextVersion;
     }
 
-    return this.version.etag !== nextVersion.etag ||
-      this.version.size !== nextVersion.size;
+    return (
+      this.version.etag !== nextVersion.etag ||
+      this.version.size !== nextVersion.size
+    );
   }
 }
 
@@ -662,10 +703,22 @@ class TaskRowFactory {
 
     const metadataLabels: GtkLabel[] = [];
     if (task.epic.length > 0) {
-      metadataLabels.push(new Gtk.Label({ label: `epic: ${task.epic.join(", ")}`, xalign: 0, wrap: true }));
+      metadataLabels.push(
+        new Gtk.Label({
+          label: `epic: ${task.epic.join(", ")}`,
+          xalign: 0,
+          wrap: true,
+        }),
+      );
     }
     if (task.depends_on.length > 0) {
-      metadataLabels.push(new Gtk.Label({ label: `depends on: ${task.depends_on.join(", ")}`, xalign: 0, wrap: true }));
+      metadataLabels.push(
+        new Gtk.Label({
+          label: `depends on: ${task.depends_on.join(", ")}`,
+          xalign: 0,
+          wrap: true,
+        }),
+      );
     }
 
     const actionButtons: GtkButton[] = TASK_STATES.map((nextState) => {
@@ -774,7 +827,10 @@ class MainWindowFactory {
     });
     const addButton: GtkButton = new Gtk.Button({ label: "add" });
     const refreshButton: GtkButton = new Gtk.Button({ label: "refresh" });
-    const stateFilter: GtkDropDown = Gtk.DropDown.new_from_strings(["all", ...TASK_STATES]);
+    const stateFilter: GtkDropDown = Gtk.DropDown.new_from_strings([
+      "all",
+      ...TASK_STATES,
+    ]);
     stateFilter.set_selected(0);
     const statusLabel: GtkLabel = new Gtk.Label({
       label: "connecting...",
@@ -845,7 +901,12 @@ class MainWindowController {
   private reloadQueued = false;
   private stateFilter = "";
 
-  constructor(ui: UiRefs, service: MinitaskService, rowFactory: TaskRowFactory, taskFile: string) {
+  constructor(
+    ui: UiRefs,
+    service: MinitaskService,
+    rowFactory: TaskRowFactory,
+    taskFile: string,
+  ) {
     this.ui = ui;
     this.service = service;
     this.rowFactory = rowFactory;
@@ -902,7 +963,10 @@ class MainWindowController {
     }
   }
 
-  private async handleMoveTask(taskId: string, nextState: TaskState): Promise<void> {
+  private async handleMoveTask(
+    taskId: string,
+    nextState: TaskState,
+  ): Promise<void> {
     this.setBusy(true, `updating ${taskId}...`);
     try {
       this.fileWatcher.markOwnWrite();
@@ -917,7 +981,10 @@ class MainWindowController {
     }
   }
 
-  private async handleSaveTaskContent(taskId: string, content: string): Promise<void> {
+  private async handleSaveTaskContent(
+    taskId: string,
+    content: string,
+  ): Promise<void> {
     this.setBusy(true, `saving ${taskId}...`);
     try {
       this.fileWatcher.markOwnWrite();
@@ -983,15 +1050,17 @@ class MainWindowController {
     }
 
     for (const task of [...tasks].reverse()) {
-      this.ui.taskList.append(this.rowFactory.create(
-        task,
-        (taskId, nextState) => {
-          void this.handleMoveTask(taskId, nextState);
-        },
-        (taskId, content) => {
-          void this.handleSaveTaskContent(taskId, content);
-        },
-      ));
+      this.ui.taskList.append(
+        this.rowFactory.create(
+          task,
+          (taskId, nextState) => {
+            void this.handleMoveTask(taskId, nextState);
+          },
+          (taskId, content) => {
+            void this.handleSaveTaskContent(taskId, content);
+          },
+        ),
+      );
     }
   }
 
@@ -1021,11 +1090,14 @@ class MainWindowController {
 
 const MinitaskApplication = GObject.registerClass(
   class MinitaskApplication extends Gtk.Application {
+    private controller: MainWindowController | null = null;
+
     constructor() {
       super({
         application_id: APPLICATION_ID,
         flags: Gio.ApplicationFlags.NON_UNIQUE,
       });
+
       this.connect("startup", () => {
         syncSystemColorScheme();
       });
@@ -1036,15 +1108,24 @@ const MinitaskApplication = GObject.registerClass(
       const connection = new McpConnection();
       const service = new MinitaskService(connection);
       const ui = new MainWindowFactory().create(this);
-      const controller = new MainWindowController(ui, service, new TaskRowFactory(), taskFile);
 
-      controller.bind();
+      this.controller = new MainWindowController(
+        ui,
+        service,
+        new TaskRowFactory(),
+        taskFile,
+      );
+
+      this.controller.bind();
+
       ui.window.connect("close-request", () => {
-        controller.close();
+        this.controller?.close();
         return false;
       });
+
       ui.window.present();
-      void controller.initialize();
+
+      void this.controller.initialize();
     }
   },
 );
