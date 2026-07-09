@@ -50,6 +50,13 @@ export interface GtkGestureClickStatic {
   new (): GtkGestureClick;
 }
 
+export interface GtkEventControllerFocus {
+  connect(signal: string, callback: (...args: any[]) => unknown): number;
+}
+export interface GtkEventControllerFocusStatic {
+  new (): GtkEventControllerFocus;
+}
+
 export interface GtkCssProvider {
   prefers_color_scheme: number;
 }
@@ -150,6 +157,7 @@ export interface GtkNamespace {
   CssProvider: GtkCssProviderStatic;
   DropDown: GtkDropDownStatic;
   Entry: GtkEntryStatic;
+  EventControllerFocus: GtkEventControllerFocusStatic;
   GestureClick: GtkGestureClickStatic;
   Label: GtkLabelStatic;
   ListBox: GtkListBoxStatic;

@@ -137,6 +137,7 @@ interface UiRefs {
   addButton: GtkButton;
   refreshButton: GtkButton;
   stateFilter: GtkDropDown;
+  epicFilter: GtkEntry;
   statusLabel: GtkLabel;
   taskList: GtkListBox;
 }
@@ -544,12 +545,15 @@ class MinitaskService {
     await this.connection.initialize();
   }
 
-  async listTasks(stateFilter = ""): Promise<TaskRecord[]> {
+  async listTasks(stateFilter = "", epicFilter = ""): Promise<TaskRecord[]> {
     const args: JsonMap = {
       verbose: true,
     };
     if (stateFilter) {
       args.state = stateFilter;
+    }
+    if (epicFilter) {
+      args.epic = epicFilter;
     }
 
     const result = await this.connection.request("tools/call", {
@@ -857,6 +861,10 @@ class MainWindowFactory {
       ...TASK_STATES,
     ]);
     stateFilter.set_selected(0);
+    const epicFilter: GtkEntry = new Gtk.Entry({
+      hexpand: true,
+      placeholder_text: "filter by epic text...",
+    });
     const statusLabel: GtkLabel = new Gtk.Label({
       label: "connecting...",
       xalign: 0,
@@ -870,9 +878,37 @@ class MainWindowFactory {
       spacing: 6,
     });
     toolbar.append(taskEntry);
-    toolbar.append(stateFilter);
     toolbar.append(addButton);
     toolbar.append(refreshButton);
+
+    const stateFilterLabel: GtkLabel = new Gtk.Label({
+      label: "State Filter:",
+      xalign: 0,
+    });
+    const stateFilterBox: GtkBox = new Gtk.Box({
+      orientation: Gtk.Orientation.HORIZONTAL,
+      spacing: 6,
+    });
+    stateFilterBox.append(stateFilterLabel);
+    stateFilterBox.append(stateFilter);
+
+    const epicFilterLabel: GtkLabel = new Gtk.Label({
+      label: "Epic Filter:",
+      xalign: 0,
+    });
+    const epicFilterBox: GtkBox = new Gtk.Box({
+      orientation: Gtk.Orientation.HORIZONTAL,
+      spacing: 6,
+    });
+    epicFilterBox.append(epicFilterLabel);
+    epicFilterBox.append(epicFilter);
+
+    const filtersBox: GtkBox = new Gtk.Box({
+      orientation: Gtk.Orientation.HORIZONTAL,
+      spacing: 12,
+    });
+    filtersBox.append(stateFilterBox);
+    filtersBox.append(epicFilterBox);
 
     const scroller: GtkScrolledWindow = new Gtk.ScrolledWindow({
       hexpand: true,
@@ -890,6 +926,7 @@ class MainWindowFactory {
     });
     content.append(toolbar);
     content.append(statusLabel);
+    content.append(filtersBox);
     content.append(scroller);
 
     const window: GtkApplicationWindow = new Gtk.ApplicationWindow({
@@ -911,6 +948,7 @@ class MainWindowFactory {
       addButton,
       refreshButton,
       stateFilter,
+      epicFilter,
       statusLabel,
       taskList,
     };
@@ -925,6 +963,7 @@ class MainWindowController {
   private reloadInFlight = false;
   private reloadQueued = false;
   private stateFilter = "";
+  private epicFilter = "";
 
   constructor(
     ui: UiRefs,
@@ -954,6 +993,19 @@ class MainWindowController {
       this.stateFilter = this.readStateFilter();
       void this.reload();
     });
+    this.ui.epicFilter.connect("activate", () => {
+      this.epicFilter = this.ui.epicFilter.get_text().trim();
+      void this.reload();
+    });
+    const focusController = new Gtk.EventControllerFocus();
+    focusController.connect("leave", () => {
+      const newFilter = this.ui.epicFilter.get_text().trim();
+      if (newFilter !== this.epicFilter) {
+        this.epicFilter = newFilter;
+        void this.reload();
+      }
+    });
+    this.ui.epicFilter.add_controller(focusController);
   }
 
   async initialize(): Promise<void> {
@@ -1033,7 +1085,7 @@ class MainWindowController {
     this.reloadInFlight = true;
     this.setBusy(true, "loading tasks...");
     try {
-      const tasks = await this.service.listTasks(this.stateFilter);
+      const tasks = await this.service.listTasks(this.stateFilter, this.epicFilter);
       this.fileWatcher.refreshVersion();
       this.renderTasks(tasks);
       this.setStatus(`${tasks.length} task(s)`);
@@ -1094,6 +1146,7 @@ class MainWindowController {
     this.ui.refreshButton.set_sensitive(!isBusy);
     this.ui.taskEntry.set_sensitive(!isBusy);
     this.ui.stateFilter.set_sensitive(!isBusy);
+    this.ui.epicFilter.set_sensitive(!isBusy);
     if (message) {
       this.setStatus(message);
     }
