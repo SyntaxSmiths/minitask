@@ -634,12 +634,11 @@ class TaskFileWatcher {
         return;
       }
 
-      logError(new Error(`event ${eventType}`));
-
       if (
         eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT ||
         eventType === Gio.FileMonitorEvent.CREATED ||
-        eventType === Gio.FileMonitorEvent.MOVED_IN
+        eventType === Gio.FileMonitorEvent.MOVED_IN ||
+        eventType === Gio.FileMonitorEvent.CHANGED
       ) {
         this.onChange();
       }
