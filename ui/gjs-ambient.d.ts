@@ -1,76 +1,65 @@
-export interface GtkWindowLike {
-  set_child(child: unknown): void;
-  present(): void;
+// Base interfaces for common patterns
+export interface Connectable {
   connect(signal: string, callback: (...args: any[]) => unknown): number;
 }
 
-export interface GtkWidgetLike {
+export interface Constructable<T> {
+  new (props?: Record<string, unknown>): T;
+}
+
+export interface SimpleConstructable<T> {
+  new (): T;
+}
+
+// GTK Widget hierarchy
+export interface GtkWindowLike extends Connectable {
+  set_child(child: unknown): void;
+  present(): void;
+  close(): void;
+}
+
+export interface GtkWidgetLike extends Connectable {
   add_css_class(name: string): void;
   add_controller(controller: unknown): void;
   set_sensitive(value: boolean): void;
-  connect(signal: string, callback: (...args: any[]) => unknown): number;
 }
 
 export interface GtkStringObjectLike {
   get_string(): string;
 }
 
-export interface GtkApplication {
-  connect(signal: string, callback: (...args: any[]) => unknown): number;
+export interface GtkApplication extends Connectable {
+  active_window: GtkApplicationWindow | null;
   quit(): void;
   run(args: string[]): number;
+  set_menubar(menubar: GioMenu | null): void;
+  add_action(action: GioSimpleAction): void;
+  get_windows(): GtkApplicationWindow[];
+  activate(): void;
 }
 
-export interface GtkApplicationStatic {
-  new (props?: Record<string, unknown>): GtkApplication;
-}
-
-export interface GtkApplicationWindow extends GtkWindowLike {}
-export interface GtkApplicationWindowStatic {
-  new (props?: Record<string, unknown>): GtkApplicationWindow;
+export interface GtkApplicationWindow extends GtkWindowLike {
+  set_titlebar(titlebar: GtkHeaderBar | null): void;
 }
 
 export interface GtkBox extends GtkWidgetLike {
   append(child: unknown): void;
   remove(child: unknown): void;
 }
-export interface GtkBoxStatic {
-  new (props?: Record<string, unknown>): GtkBox;
-}
 
 export interface GtkButton extends GtkWidgetLike {}
-export interface GtkButtonStatic {
-  new (props?: Record<string, unknown>): GtkButton;
-}
 
-export interface GtkGestureClick {
-  connect(signal: string, callback: (...args: any[]) => unknown): number;
-}
-export interface GtkGestureClickStatic {
-  new (): GtkGestureClick;
-}
+export interface GtkGestureClick extends Connectable {}
 
-export interface GtkEventControllerFocus {
-  connect(signal: string, callback: (...args: any[]) => unknown): number;
-}
-export interface GtkEventControllerFocusStatic {
-  new (): GtkEventControllerFocus;
-}
+export interface GtkEventControllerFocus extends Connectable {}
 
 export interface GtkCssProvider {
   prefers_color_scheme: number;
 }
-export interface GtkCssProviderStatic {
-  new (): GtkCssProvider;
-}
 
-export interface GtkSettings {
+export interface GtkSettings extends Connectable {
   gtk_application_prefer_dark_theme: boolean;
   gtk_interface_color_scheme: number;
-  connect(signal: string, callback: (...args: any[]) => unknown): number;
-}
-export interface GtkSettingsStatic {
-  get_default(): GtkSettings | null;
 }
 
 export interface GtkStyleContextStatic {
@@ -85,8 +74,8 @@ export interface GtkDropDown extends GtkWidgetLike {
   set_selected(index: number): void;
   get_selected_item(): GtkStringObjectLike | null;
 }
-export interface GtkDropDownStatic {
-  new (props?: Record<string, unknown>): GtkDropDown;
+
+export interface GtkDropDownStatic extends Constructable<GtkDropDown> {
   new_from_strings(values: string[]): GtkDropDown;
 }
 
@@ -94,16 +83,10 @@ export interface GtkEntry extends GtkWidgetLike {
   get_text(): string;
   set_text(value: string): void;
 }
-export interface GtkEntryStatic {
-  new (props?: Record<string, unknown>): GtkEntry;
-}
 
 export interface GtkLabel extends GtkWidgetLike {
   set_label(value: string): void;
   get_allocated_height(): any;
-}
-export interface GtkLabelStatic {
-  new (props?: Record<string, unknown>): GtkLabel;
 }
 
 export interface GtkListBox extends GtkWidgetLike {
@@ -111,23 +94,14 @@ export interface GtkListBox extends GtkWidgetLike {
   get_first_child(): GtkListBoxRow | null;
   remove(child: GtkListBoxRow): void;
 }
-export interface GtkListBoxStatic {
-  new (props?: Record<string, unknown>): GtkListBox;
-}
 
 export interface GtkListBoxRow extends GtkWidgetLike {
   set_child(child: unknown): void;
   get_next_sibling(): GtkListBoxRow | null;
 }
-export interface GtkListBoxRowStatic {
-  new (props?: Record<string, unknown>): GtkListBoxRow;
-}
 
 export interface GtkScrolledWindow extends GtkWidgetLike {
   set_child(child: unknown): void;
-}
-export interface GtkScrolledWindowStatic {
-  new (props?: Record<string, unknown>): GtkScrolledWindow;
 }
 
 export interface GtkTextIter {}
@@ -145,27 +119,73 @@ export interface GtkTextBuffer {
 export interface GtkTextView extends GtkWidgetLike {
   get_buffer(): GtkTextBuffer;
 }
-export interface GtkTextViewStatic {
-  new (props?: Record<string, unknown>): GtkTextView;
+
+export interface GtkFileChooserDialog extends GtkWindowLike {
+  add_button(label: string, response_id: number): void;
+  add_filter(filter: GtkFileFilter): void;
+  get_file(): GioFile | null;
+}
+
+export interface GtkFileFilter {
+  set_name(name: string): void;
+  add_pattern(pattern: string): void;
+}
+
+export interface GtkMessageDialog extends GtkWindowLike {}
+
+export interface GtkAboutDialog extends GtkWindowLike {}
+
+export interface GtkHeaderBar extends GtkWidgetLike {
+  pack_end(child: GtkWidgetLike): void;
+  pack_start(child: GtkWidgetLike): void;
+}
+
+export interface GtkMenuButton extends GtkWidgetLike {
+  set_menu_model(model: GioMenu | null): void;
+  set_icon_name(icon_name: string): void;
+}
+
+export interface GtkPopoverMenuBar extends GtkWidgetLike {}
+
+export interface GtkPopoverMenuBarStatic {
+  new_from_model(model: GioMenu | null): GtkPopoverMenuBar;
 }
 
 export interface GtkNamespace {
-  Application: GtkApplicationStatic;
-  ApplicationWindow: GtkApplicationWindowStatic;
-  Box: GtkBoxStatic;
-  Button: GtkButtonStatic;
-  CssProvider: GtkCssProviderStatic;
+  AboutDialog: Constructable<GtkAboutDialog>;
+  Application: Constructable<GtkApplication>;
+  ApplicationWindow: Constructable<GtkApplicationWindow>;
+  Box: Constructable<GtkBox>;
+  Button: Constructable<GtkButton>;
+  CssProvider: SimpleConstructable<GtkCssProvider>;
   DropDown: GtkDropDownStatic;
-  Entry: GtkEntryStatic;
-  EventControllerFocus: GtkEventControllerFocusStatic;
-  GestureClick: GtkGestureClickStatic;
-  Label: GtkLabelStatic;
-  ListBox: GtkListBoxStatic;
-  ListBoxRow: GtkListBoxRowStatic;
-  ScrolledWindow: GtkScrolledWindowStatic;
-  Settings: GtkSettingsStatic;
+  Entry: Constructable<GtkEntry>;
+  EventControllerFocus: SimpleConstructable<GtkEventControllerFocus>;
+  FileChooserDialog: Constructable<GtkFileChooserDialog>;
+  FileFilter: SimpleConstructable<GtkFileFilter>;
+  GestureClick: SimpleConstructable<GtkGestureClick>;
+  HeaderBar: Constructable<GtkHeaderBar>;
+  Label: Constructable<GtkLabel>;
+  ListBox: Constructable<GtkListBox>;
+  ListBoxRow: Constructable<GtkListBoxRow>;
+  MenuButton: Constructable<GtkMenuButton>;
+  MessageDialog: Constructable<GtkMessageDialog>;
+  PopoverMenuBar: GtkPopoverMenuBarStatic;
+  ScrolledWindow: Constructable<GtkScrolledWindow>;
+  Settings: {
+    get_default(): GtkSettings | null;
+  };
   StyleContext: GtkStyleContextStatic;
-  TextView: GtkTextViewStatic;
+  TextView: Constructable<GtkTextView>;
+  ButtonsType: {
+    OK: number;
+  };
+  FileChooserAction: {
+    OPEN: number;
+  };
+  License: {
+    MIT_X11: number;
+  };
   Orientation: {
     HORIZONTAL: number;
     VERTICAL: number;
@@ -176,6 +196,10 @@ export interface GtkNamespace {
     DARK: number;
     UNSUPPORTED: number;
   };
+  ResponseType: {
+    ACCEPT: number;
+    CANCEL: number;
+  };
   STYLE_PROVIDER_PRIORITY_APPLICATION: number;
   SelectionMode: {
     NONE: number;
@@ -183,24 +207,21 @@ export interface GtkNamespace {
 }
 
 export interface GdkDisplay {}
-export interface GdkDisplayStatic {
-  get_default(): GdkDisplay | null;
-}
 
 export interface GdkNamespace {
-  Display: GdkDisplayStatic;
+  Display: {
+    get_default(): GdkDisplay | null;
+  };
 }
 
 export interface AdwStyleManager {
   color_scheme: number;
 }
 
-export interface AdwStyleManagerStatic {
-  get_default(): AdwStyleManager;
-}
-
 export interface AdwNamespace {
-  StyleManager: AdwStyleManagerStatic;
+  StyleManager: {
+    get_default(): AdwStyleManager;
+  };
   ColorScheme: {
     DEFAULT: number;
     FORCE_LIGHT: number;
@@ -213,9 +234,6 @@ export interface AdwNamespace {
 export interface GioCancellable {
   cancel(): void;
 }
-export interface GioCancellableStatic {
-  new (): GioCancellable;
-}
 
 export interface GioBytesLike {
   toArray(): Uint8Array;
@@ -226,8 +244,8 @@ export interface GioFileInfoLike {
   get_size(): number;
 }
 
-export interface GioFileMonitor {
-  connect(signal: string, callback: (...args: any[]) => unknown): number;
+export interface GioFileMonitor extends Connectable {
+  cancel(): void;
 }
 
 export interface GioFile {
@@ -242,19 +260,28 @@ export interface GioFile {
   ): GioFileInfoLike;
   get_parent(): any;
   get_basename(): any;
+  get_path(): string | null;
   monitor_directory(_first: any, _second: any): any;
 }
 
-export interface GioFileStatic {
-  new_for_path(path: string): GioFile;
+export interface GioMenu {
+  append(label: string, detailed_action: string): void;
+  append_submenu(label: string, submenu: GioMenu): void;
+  append_section(label: string | null, section: GioMenu): void;
 }
+
+export interface GioSimpleAction extends Connectable {}
 
 export interface GioNamespace {
   ApplicationFlags: {
     NON_UNIQUE: number;
   };
-  Cancellable: GioCancellableStatic;
-  File: GioFileStatic;
+  Cancellable: SimpleConstructable<GioCancellable>;
+  File: {
+    new_for_path(path: string): GioFile;
+  };
+  Menu: SimpleConstructable<GioMenu>;
+  SimpleAction: Constructable<GioSimpleAction>;
   FileMonitorFlags: {
     NONE: number;
   };
@@ -297,27 +324,18 @@ export interface GioAsyncInputStream {
   read_bytes_finish(result: unknown): GioBytesLike;
 }
 
-export interface GioInputStreamStatic {
-  new (props?: Record<string, unknown>): GioAsyncInputStream;
-}
-
-export interface GioOutputStreamStatic {
-  new (props?: Record<string, unknown>): GioAsyncOutputStream;
-}
-
 export interface GioUnixNamespace {
-  InputStream: GioInputStreamStatic;
-  OutputStream: GioOutputStreamStatic;
-}
-
-export interface GLibBytesStatic {
-  new (data: Uint8Array): unknown;
+  InputStream: Constructable<GioAsyncInputStream>;
+  OutputStream: Constructable<GioAsyncOutputStream>;
 }
 
 export interface GLibNamespace {
   getenv(name: string): string | null;
+  setenv(name: string, value: string, overwrite: boolean): boolean;
   PRIORITY_DEFAULT: number;
-  Bytes: GLibBytesStatic;
+  Bytes: {
+    new (data: Uint8Array): unknown;
+  };
   timeout_add(
     priority: number,
     interval: number,

@@ -1576,4 +1576,4 @@ Verification and test:
 - Verify the filtering path applies state filtering and epic wildcard filtering through the GUI flow.
 - Do not run `tsc` directly.
 - Do not start the GUI via `gjs` directly.
-- Startup-only GUI verification is sufficient in this environmentbutnow"""
+- Startup-only GUI verification is sufficient in this environment"""

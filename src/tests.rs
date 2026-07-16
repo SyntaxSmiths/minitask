@@ -1,4 +1,5 @@
 use super::*;
+use file_lock::{FileLock, FileOptions};
 use std::fs;
 use std::fs::File;
 
@@ -6,7 +7,7 @@ fn load_tasks(file: &mut File) -> Result<TaskFile, Error> {
     TaskFile::load(file)
 }
 
-fn save_tasks(file: &mut File, task_file: &TaskFile) -> Result<TaskFile, Error> {
+fn save_tasks(file: &mut File, task_file: &TaskFile) -> Result<(), Error> {
     task_file.save(file)
 }
 

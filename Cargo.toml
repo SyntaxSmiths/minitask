@@ -3,6 +3,10 @@ name = "minitask"
 version = "0.1.2"
 edition = "2021"
 build = "build.rs"
+authors = ["Eddy S."]
+license = "MIT"
+description = "A simple task management tool with MCP server support"
+repository = "https://github.com/yourusername/minitask"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
@@ -10,6 +14,8 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 serde_json = "1.0"
 file-lock = "2.1.11"
-clap-mcp = "0.0.5"
+rmcp = { version = "2.2.0", features = ["server", "macros", "transport-io", "schemars"] }
 command-fds = "0.3.3"
 tokio = { version = "1", features = ["net"] }
+env_logger = "0.11"
+log = "0.4"

@@ -22,7 +22,15 @@ declare const imports: {
     fromString(text: string): Uint8Array;
   };
 };
-declare function logError(error: unknown, message?: string): void;
+declare function print(message: string): void;
+
+// Build-time metadata injected by build.rs
+declare const MINITASK_VERSION: string;
+declare const MINITASK_NAME: string;
+declare const MINITASK_AUTHORS: string;
+declare const MINITASK_REPOSITORY: string;
+declare const MINITASK_LICENSE: string;
+declare const MINITASK_DESCRIPTION: string;
 
 type GtkModule = GtkNamespace;
 type AdwModule = AdwNamespace;
@@ -182,6 +190,20 @@ function requireEnvString(name: string): string {
   return value;
 }
 
+function logDebug(message: string): void {
+  if (envString("MINITASK_GUI_DEBUG")) {
+    print(`[DEBUG] ${message}`);
+  }
+}
+
+function logInfo(message: string): void {
+  print(`[INFO] ${message}`);
+}
+
+function logErr(message: string): void {
+  print(`[ERROR] ${message}`);
+}
+
 function decodeBytes(bytes: Uint8Array): string {
   return imports.byteArray.toString(bytes);
 }
@@ -239,23 +261,33 @@ function isRpcMessage(value: JsonValue): boolean {
 }
 
 function parseToolPayload(result: ToolCallEnvelope): JsonValue {
+  logDebug(`[PARSE] parseToolPayload called with: ${JSON.stringify(result)}`);
+  
   if (result.structuredContent !== undefined) {
+    logDebug(`[PARSE] Using structuredContent: ${JSON.stringify(result.structuredContent)}`);
     return result.structuredContent;
   }
 
+  logDebug(`[PARSE] No structuredContent, parsing content array`);
   const text = (result.content ?? [])
     .filter((item) => item.type === "text" && typeof item.text === "string")
     .map((item) => item.text ?? "")
     .join("\n")
     .trim();
 
+  logDebug(`[PARSE] Extracted text (${text.length} chars): ${text.substring(0, 200)}`);
+
   if (!text) {
+    logErr(`[PARSE] No text found, returning null`);
     return null;
   }
 
   try {
-    return JSON.parse(text) as JsonValue;
-  } catch {
+    const parsed = JSON.parse(text) as JsonValue;
+    logDebug(`[PARSE] Successfully parsed JSON`);
+    return parsed;
+  } catch (e) {
+    logErr(`[PARSE] Failed to parse JSON: ${e}`);
     return text;
   }
 }
@@ -344,7 +376,7 @@ class JsonLineChannel {
       this.output.close(null);
     } catch (error) {
       if (!this.isExpectedCloseError(error)) {
-        logError(error, "closing minitask output");
+        logErr(`closing minitask output: ${error}`);
       }
     }
   }
@@ -373,7 +405,7 @@ class JsonLineChannel {
             pump();
           } catch (error) {
             if (!this.closed && !this.isExpectedCloseError(error)) {
-              logError(error, "minitask stdout");
+              logErr(`minitask stdout: ${error}`);
             }
           }
         },
@@ -407,10 +439,7 @@ class JsonLineChannel {
     try {
       const parsed = JSON.parse(line) as JsonValue;
       if (!isJsonMap(parsed) || !isRpcMessage(parsed)) {
-        logError(
-          new Error(`Ignoring unexpected MCP message: ${line}`),
-          "minitask protocol",
-        );
+        logErr(`Ignoring unexpected MCP message: ${line}`);
         return null;
       }
 
@@ -420,7 +449,7 @@ class JsonLineChannel {
 
       return parsed as unknown as RpcMessage;
     } catch (error) {
-      logError(error, `Failed to parse MCP message: ${line}`);
+      logErr(`Failed to parse MCP message: ${line} - ${error}`);
       return null;
     }
   }
@@ -536,9 +565,19 @@ class McpConnection {
 
 class MinitaskService {
   private readonly connection: McpConnection;
+  private taskFile: string;
 
-  constructor(connection: McpConnection) {
+  constructor(connection: McpConnection, taskFile: string) {
     this.connection = connection;
+    this.taskFile = taskFile;
+  }
+
+  setTaskFile(path: string): void {
+    this.taskFile = path;
+  }
+
+  getTaskFile(): string {
+    return this.taskFile;
   }
 
   async connect(): Promise<void> {
@@ -547,6 +586,7 @@ class MinitaskService {
 
   async listTasks(stateFilter = "", epicFilter = ""): Promise<TaskRecord[]> {
     const args: JsonMap = {
+      file: this.taskFile,
       verbose: true,
     };
     if (stateFilter) {
@@ -556,23 +596,37 @@ class MinitaskService {
       args.epic = epicFilter;
     }
 
+    logDebug(`[SERVICE] Calling list with args: ${JSON.stringify(args)}`);
     const result = await this.connection.request("tools/call", {
       name: "list",
       arguments: args,
     });
 
+    logDebug(`[SERVICE] List result type: ${typeof result}`);
+    logDebug(`[SERVICE] List result: ${JSON.stringify(result)}`);
+
     if (!isJsonMap(result)) {
+      logErr(`[SERVICE] Result is not a JsonMap, returning empty array`);
       return [];
     }
 
+    logDebug(`[SERVICE] Parsing tool payload...`);
     const payload = parseToolPayload(result as unknown as ToolCallEnvelope);
-    return toTaskListResult(payload).tasks;
+    logDebug(`[SERVICE] Parsed payload: ${JSON.stringify(payload)}`);
+    
+    const taskList = toTaskListResult(payload);
+    logInfo(`[SERVICE] Task list has ${taskList.tasks.length} tasks`);
+    logDebug(`[SERVICE] Tasks: ${JSON.stringify(taskList)}`);
+    return taskList.tasks;
   }
 
   async createTask(content: string): Promise<void> {
     await this.connection.request("tools/call", {
       name: "new",
-      arguments: { content },
+      arguments: { 
+        file: this.taskFile,
+        content 
+      },
     });
   }
 
@@ -580,6 +634,7 @@ class MinitaskService {
     await this.connection.request("tools/call", {
       name: "edit-state",
       arguments: {
+        file: this.taskFile,
         task_id: taskId,
         state,
       },
@@ -590,6 +645,7 @@ class MinitaskService {
     await this.connection.request("tools/call", {
       name: "edit-content",
       arguments: {
+        file: this.taskFile,
         task_id: taskId,
         content,
       },
@@ -643,6 +699,13 @@ class TaskFileWatcher {
         this.onChange();
       }
     });
+  }
+
+  stop(): void {
+    if (this.monitor) {
+      this.monitor.cancel();
+      this.monitor = null;
+    }
   }
 
   markOwnWrite(): void {
@@ -928,12 +991,36 @@ class MainWindowFactory {
     content.append(filtersBox);
     content.append(scroller);
 
+    const headerBar = new Gtk.HeaderBar();
+
+    // Create menu model
+    const menuModel = new Gio.Menu();
+    
+    // File menu
+    const fileMenu = new Gio.Menu();
+    fileMenu.append("Open Task File...", "app.open");
+    fileMenu.append("Close Window", "app.close");
+    menuModel.append_submenu("File", fileMenu);
+    
+    // Help menu
+    const helpMenu = new Gio.Menu();
+    helpMenu.append("About", "app.about");
+    helpMenu.append("Quit", "app.quit");
+    menuModel.append_submenu("Help", helpMenu);
+    
+    // Create menu button and add to header bar
+    const menuButton = new Gtk.MenuButton();
+    menuButton.set_icon_name("open-menu-symbolic");
+    menuButton.set_menu_model(menuModel);
+    headerBar.pack_end(menuButton);
+
     const window: GtkApplicationWindow = new Gtk.ApplicationWindow({
       application: app,
       title: "minitask",
       default_width: 960,
       default_height: 720,
     });
+    window.set_titlebar(headerBar);
     window.set_child(content);
 
     window.connect("close-request", () => {
@@ -958,7 +1045,7 @@ class MainWindowController {
   private readonly ui: UiRefs;
   private readonly service: MinitaskService;
   private readonly rowFactory: TaskRowFactory;
-  private readonly fileWatcher: TaskFileWatcher;
+  private fileWatcher: TaskFileWatcher;
   private reloadInFlight = false;
   private reloadQueued = false;
   private stateFilter = "";
@@ -1015,6 +1102,34 @@ class MainWindowController {
       this.fileWatcher.start();
     } catch (error) {
       this.showError(error);
+    }
+  }
+
+  async changeTaskFile(newPath: string): Promise<void> {
+    this.setBusy(true, "switching task file...");
+    try {
+      // Stop watching the old file
+      this.fileWatcher.stop();
+      
+      // Update the service with new file path
+      this.service.setTaskFile(newPath);
+      
+      // Start watching the new file
+      this.fileWatcher = new TaskFileWatcher({
+        path: newPath,
+        onChange: () => {
+          void this.reloadFromFileEvent();
+        },
+      });
+      this.fileWatcher.start();
+      
+      // Reload tasks from new file
+      await this.reload();
+      this.setStatus(`opened ${newPath}`);
+    } catch (error) {
+      this.showError(error);
+    } finally {
+      this.setBusy(false, "");
     }
   }
 
@@ -1114,30 +1229,38 @@ class MainWindowController {
   }
 
   private renderTasks(tasks: TaskRecord[]): void {
+    logInfo(`[RENDER] renderTasks called with ${tasks.length} tasks`);
+    logDebug(`[RENDER] Tasks: ${JSON.stringify(tasks)}`);
+    
     // This view only renders the current filtered task slice and rebuilds it on
     // explicit reload/file-change events. For the expected small task counts and
     // per-row custom actions in this GUI, Gtk.ListBox keeps the code simpler than
     // a Gio.ListStore/Gtk.ListView migration without changing visible behavior.
     let child = this.ui.taskList.get_first_child();
+    let removedCount = 0;
     while (child) {
       const next = child.get_next_sibling();
       this.ui.taskList.remove(child);
+      removedCount++;
       child = next;
     }
+    logDebug(`[RENDER] Removed ${removedCount} existing rows`);
 
     for (const task of [...tasks].reverse()) {
-      this.ui.taskList.append(
-        this.rowFactory.create(
-          task,
-          (taskId, nextState) => {
-            void this.handleMoveTask(taskId, nextState);
-          },
-          (taskId, content) => {
-            void this.handleSaveTaskContent(taskId, content);
-          },
-        ),
+      logDebug(`[RENDER] Creating row for task: ${task.name}`);
+      const row = this.rowFactory.create(
+        task,
+        (taskId, nextState) => {
+          void this.handleMoveTask(taskId, nextState);
+        },
+        (taskId, content) => {
+          void this.handleSaveTaskContent(taskId, content);
+        },
       );
+      this.ui.taskList.append(row);
+      logDebug(`[RENDER] Appended row for task: ${task.name}`);
     }
+    logInfo(`[RENDER] Finished rendering ${tasks.length} tasks`);
   }
 
   private setBusy(isBusy: boolean, message: string): void {
@@ -1177,13 +1300,104 @@ const MinitaskApplication = GObject.registerClass(
 
       this.connect("startup", () => {
         syncSystemColorScheme();
+        this.setupActions();
       });
+    }
+
+    private setupActions(): void {
+      const openAction = new Gio.SimpleAction({ name: "open" });
+      openAction.connect("activate", () => {
+        this.handleOpenFile();
+      });
+      this.add_action(openAction);
+
+      const closeAction = new Gio.SimpleAction({ name: "close" });
+      closeAction.connect("activate", () => {
+        this.handleCloseWindow();
+      });
+      this.add_action(closeAction);
+
+      const aboutAction = new Gio.SimpleAction({ name: "about" });
+      aboutAction.connect("activate", () => {
+        this.handleAbout();
+      });
+      this.add_action(aboutAction);
+
+      const quitAction = new Gio.SimpleAction({ name: "quit" });
+      quitAction.connect("activate", () => {
+        this.quit();
+      });
+      this.add_action(quitAction);
+    }
+
+    private handleOpenFile(): void {
+      const dialog = new Gtk.FileChooserDialog({
+        title: "Open Task File",
+        action: Gtk.FileChooserAction.OPEN,
+        transient_for: this.active_window as GtkApplicationWindow,
+        modal: true,
+      });
+
+      dialog.add_button("Cancel", Gtk.ResponseType.CANCEL);
+      dialog.add_button("Open", Gtk.ResponseType.ACCEPT);
+
+      const filter = new Gtk.FileFilter();
+      filter.set_name("TOML files");
+      filter.add_pattern("*.toml");
+      dialog.add_filter(filter);
+
+      const allFilter = new Gtk.FileFilter();
+      allFilter.set_name("All files");
+      allFilter.add_pattern("*");
+      dialog.add_filter(allFilter);
+
+      dialog.connect("response", (_dialog, response) => {
+        if (response === Gtk.ResponseType.ACCEPT) {
+          const file = dialog.get_file();
+          if (file) {
+            const path = file.get_path();
+            if (path) {
+              logInfo(`Opening task file: ${path}`);
+              
+              // Simply change the task file and reload
+              if (this.controller) {
+                this.controller.changeTaskFile(path);
+              }
+            }
+          }
+        }
+        dialog.close();
+      });
+
+      dialog.present();
+    }
+
+    private handleCloseWindow(): void {
+      const window = this.active_window;
+      if (window) {
+        window.close();
+      }
+    }
+
+    private handleAbout(): void {
+      const aboutDialog = new Gtk.AboutDialog({
+        transient_for: this.active_window as GtkApplicationWindow,
+        modal: true,
+        program_name: MINITASK_NAME,
+        version: MINITASK_VERSION,
+        comments: MINITASK_DESCRIPTION,
+        website: MINITASK_REPOSITORY,
+        website_label: "Project Repository",
+        license_type: Gtk.License.MIT_X11,
+        authors: MINITASK_AUTHORS.split(',').map(a => a.trim()),
+      });
+      aboutDialog.present();
     }
 
     vfunc_activate(): void {
       const taskFile = requireEnvString("MINITASK_GUI_TASK_FILE");
       const connection = new McpConnection();
-      const service = new MinitaskService(connection);
+      const service = new MinitaskService(connection, taskFile);
       const ui = new MainWindowFactory().create(this);
 
       this.controller = new MainWindowController(
