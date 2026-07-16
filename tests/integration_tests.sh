@@ -71,11 +71,11 @@ setup
 
 # Test 1: Create new task
 echo "Test: new command"
-output=$($MINITASK --file "$TEST_FILE" new "First task")
+output=$($MINITASK --file "$TEST_FILE" new --content "First task")
 assert_contains "Created TASK-0" "$output" "Create first task"
 
 # Test 2: Create second task
-output=$($MINITASK --file "$TEST_FILE" new "Second task")
+output=$($MINITASK --file "$TEST_FILE" new --content "Second task")
 assert_contains "Created TASK-1" "$output" "Create second task"
 
 # Test 3: List all tasks
@@ -84,33 +84,33 @@ assert_contains "TASK-0" "$output" "List shows TASK-0"
 assert_contains "TASK-1" "$output" "List shows TASK-1"
 
 # Test 4: Show specific task
-output=$($MINITASK --file "$TEST_FILE" show 0)
+output=$($MINITASK --file "$TEST_FILE" show --task-id TASK-0)
 assert_contains "TASK-0" "$output" "Show TASK-0"
 assert_contains "First task" "$output" "Show contains content"
 
 # Test 5: Edit state
-$MINITASK --file "$TEST_FILE" edit state TASK-0 in-progress
-output=$($MINITASK --file "$TEST_FILE" show TASK-0 --verbose)
+$MINITASK --file "$TEST_FILE" edit-state --task-id TASK-0 --state in-progress
+output=$($MINITASK --file "$TEST_FILE" show --task-id TASK-0)
 assert_contains "in-progress" "$output" "State changed to in-progress"
 
 # Test 6: Edit content
-$MINITASK --file "$TEST_FILE" edit content TASK-0 "Updated content"
-output=$($MINITASK --file "$TEST_FILE" show TASK-0)
+$MINITASK --file "$TEST_FILE" edit-content --task-id TASK-0 --content "Updated content"
+output=$($MINITASK --file "$TEST_FILE" show --task-id TASK-0)
 assert_contains "Updated content" "$output" "Content updated"
 
 # Test 7: Add content
-$MINITASK --file "$TEST_FILE" add content TASK-0 "\nAppended text"
-output=$($MINITASK --file "$TEST_FILE" show TASK-0)
+$MINITASK --file "$TEST_FILE" add-content --task-id TASK-0 --content "\nAppended text"
+output=$($MINITASK --file "$TEST_FILE" show --task-id TASK-0)
 assert_contains "Appended text" "$output" "Content appended"
 
 # Test 8: Add depends-on
-$MINITASK --file "$TEST_FILE" add depends-on TASK-0 TASK-1
-output=$($MINITASK --file "$TEST_FILE" show TASK-0 --verbose)
+$MINITASK --file "$TEST_FILE" add-depends-on --task-id TASK-0 --depends-on TASK-1
+output=$($MINITASK --file "$TEST_FILE" show --task-id TASK-0)
 assert_contains "TASK-1" "$output" "Dependency added"
 
 # Test 9: Del depends-on
-$MINITASK --file "$TEST_FILE" del depends-on TASK-0 TASK-1
-output=$($MINITASK --file "$TEST_FILE" show TASK-0 --verbose)
+$MINITASK --file "$TEST_FILE" del-depends-on --task-id TASK-0 --depends-on TASK-1
+output=$($MINITASK --file "$TEST_FILE" show --task-id TASK-0)
 if echo "$output" | grep -q "Depends on:.*TASK-1"; then
     echo -e "${RED}✗${NC} Dependency removed"
     TESTS_RUN=$((TESTS_RUN + 1))
@@ -121,13 +121,13 @@ else
 fi
 
 # Test 10: Add epic
-$MINITASK --file "$TEST_FILE" add epic TASK-0 planning
-output=$($MINITASK --file "$TEST_FILE" show TASK-0 --verbose)
+$MINITASK --file "$TEST_FILE" add-epic --task-id TASK-0 --epic planning
+output=$($MINITASK --file "$TEST_FILE" show --task-id TASK-0)
 assert_contains "planning" "$output" "Epic added"
 
 # Test 11: Del epic
-$MINITASK --file "$TEST_FILE" del epic TASK-0 planning
-output=$($MINITASK --file "$TEST_FILE" show TASK-0 --verbose)
+$MINITASK --file "$TEST_FILE" del-epic --task-id TASK-0 --epic planning
+output=$($MINITASK --file "$TEST_FILE" show --task-id TASK-0)
 if echo "$output" | grep -q "Epic:.*planning"; then
     echo -e "${RED}✗${NC} Epic removed"
     TESTS_RUN=$((TESTS_RUN + 1))
@@ -138,7 +138,7 @@ else
 fi
 
 # Test 12: List with state filter
-$MINITASK --file "$TEST_FILE" edit state TASK-1 done
+$MINITASK --file "$TEST_FILE" edit-state --task-id TASK-1 --state done
 output=$($MINITASK --file "$TEST_FILE" list --state done)
 assert_contains "TASK-1" "$output" "List filtered by state"
 if echo "$output" | grep -q "TASK-0"; then
@@ -151,35 +151,30 @@ else
 fi
 
 # Test 13: List with epic filter
-$MINITASK --file "$TEST_FILE" add epic TASK-1 testing
+$MINITASK --file "$TEST_FILE" add-epic --task-id TASK-1 --epic testing
 output=$($MINITASK --file "$TEST_FILE" list --epic testing)
 assert_contains "TASK-1" "$output" "List filtered by epic"
 
 # Test 14: Claim command
-$MINITASK --file "$TEST_FILE" new "Third task"
-output=$($MINITASK --file "$TEST_FILE" claim in-progress)
+$MINITASK --file "$TEST_FILE" new --content "Third task"
+output=$($MINITASK --file "$TEST_FILE" claim --new-state in-progress)
 assert_contains "TASK-2" "$output" "Claim task from todo"
 assert_contains "in-progress" "$output" "Claimed task moved to in-progress"
 
 # Test 15: Claim with dependency blocking
-$MINITASK --file "$TEST_FILE" new "Fourth task"
-$MINITASK --file "$TEST_FILE" new "Fifth task"
-$MINITASK --file "$TEST_FILE" add depends-on TASK-3 TASK-4
-$MINITASK --file "$TEST_FILE" edit state TASK-2 done
-output=$($MINITASK --file "$TEST_FILE" claim in-progress)
+$MINITASK --file "$TEST_FILE" new --content "Fourth task"
+$MINITASK --file "$TEST_FILE" new --content "Fifth task"
+$MINITASK --file "$TEST_FILE" add-depends-on --task-id TASK-3 --depends-on TASK-4
+$MINITASK --file "$TEST_FILE" edit-state --task-id TASK-2 --state done
+output=$($MINITASK --file "$TEST_FILE" claim --new-state in-progress)
 assert_contains "TASK-4" "$output" "Claim skips blocked task"
 
-# Test 16: JSON output
-output=$($MINITASK --file "$TEST_FILE" show TASK-0 --json-out)
-assert_contains '"name"' "$output" "JSON output contains name field"
-assert_contains '"state"' "$output" "JSON output contains state field"
-
-# Test 17: Stdin input for new command
-echo "Task from stdin" | $MINITASK --file "$TEST_FILE" new -
+# Test 16: Stdin input for new command
+echo "Task from stdin" | $MINITASK --file "$TEST_FILE" new --content -
 output=$($MINITASK --file "$TEST_FILE" list)
 assert_contains "Task from stdin" "$output" "Task created from stdin"
 
-# Test 18: Verbose list
+# Test 17: Verbose list
 output=$($MINITASK --file "$TEST_FILE" list --verbose)
 assert_contains "State:" "$output" "Verbose list shows state"
 assert_contains "Content:" "$output" "Verbose list shows content"

@@ -14,14 +14,13 @@ minitask is particularly effective for AI agent task management with atomic oper
 
 ```bash
 # Build and install
-cargo build --release
-sudo cp target/release/minitask /usr/local/bin/
+cargo install --git https://github.com/SyntaxSmiths/minitask
 
 # Create and manage tasks
 minitask new "Implement feature X"
 minitask list
 minitask claim in-progress
-minitask edit state TASK-0 done
+minitask edit-state TASK-0 done
 ```
 
 ## Key Features
@@ -30,7 +29,6 @@ minitask edit state TASK-0 done
 - Dependency tracking with automatic blocking
 - Epic-based organization
 - Smart task claiming with dependency resolution
-- JSON input/output for scripting
 - Filtering by state and epic
 
 ## Documentation
@@ -39,4 +37,4 @@ For complete command reference, examples, and detailed usage, see [MINITASK.md](
 
 ## License
 
-MIT
+[MIT](LICENSE)
