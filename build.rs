@@ -29,6 +29,7 @@ fn main() {
 
         match status {
             Ok(status) if status.success() => {
+                // TypeScript outputs to generated/gui.js
                 let compiled = generated_dir.join("gui.js");
                 if !compiled.exists() {
                     panic!(

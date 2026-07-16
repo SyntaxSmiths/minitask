@@ -2,10 +2,11 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
-    "module": "None",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
     "skipLibCheck": true,
     "noEmit": false,
-    "outFile": "../generated/gui.js"
+    "outDir": "../generated"
   },
   "files": ["gui.ts"]
 }
