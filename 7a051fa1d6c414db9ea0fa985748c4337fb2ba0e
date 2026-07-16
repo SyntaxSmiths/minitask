@@ -1,0 +1,5 @@
+{"id":"52a30bdc-5a02-4fa8-86bf-d992275f91ff","ts":"2026-07-15T18:07:31.752Z","path":"/home/eddy/src/minitask/test-mcp.sh","version":"1.0.0","taskID":"c7adf031-e6a2-4a52-95c5-a3d4e6547405"}
+{"id":"67ba175f-ed9a-46aa-8b4d-f457c9834507","ts":"2026-07-15T18:07:42.722Z","path":"/home/eddy/src/minitask/test-mcp-stdio.sh","version":"1.0.0","taskID":"c7adf031-e6a2-4a52-95c5-a3d4e6547405"}
+{"id":"64871023-b9d9-4f04-a073-f319c6423743","ts":"2026-07-16T11:43:56.646Z","path":"/home/eddy/src/minitask/test-mcp-init.sh","version":"1.0.0","taskID":"5905313e-2f98-496f-a645-51dd04c081c6"}
+{"id":"bf95e662-57f3-46fb-8c5a-37537827ee1f","ts":"2026-07-16T12:06:31.551Z","path":"/home/eddy/src/minitask/src/lib.rs","version":"1.0.0","taskID":"5905313e-2f98-496f-a645-51dd04c081c6"}
+{"id":"3103bef5-9c4a-4aa0-b49c-c70b8e8fb80e","ts":"2026-07-16T12:06:57.830Z","path":"/home/eddy/src/minitask/tests/integration_test.rs","version":"1.0.0","taskID":"5905313e-2f98-496f-a645-51dd04c081c6"}
