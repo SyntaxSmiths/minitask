@@ -381,7 +381,7 @@ const RpcValidator = {
 
 function parseToolPayload(result: ToolCallEnvelope): JsonValue {
   Logger.debug(`[PARSE] parseToolPayload called with: ${JSON.stringify(result)}`);
-  
+
   if (result.structuredContent !== undefined) {
     Logger.debug(`[PARSE] Using structuredContent: ${JSON.stringify(result.structuredContent)}`);
     return result.structuredContent;
@@ -632,14 +632,14 @@ class McpConnection {
         version: "0.1.0",
       },
     });
-    
+
     // Extract serverInfo from initialize response
     if (result && typeof result === 'object' && 'serverInfo' in result) {
       const info = (result as any).serverInfo;
       if (info && typeof info === 'object') {
         const name = String(info.name || 'minitask');
         const version = String(info.version || '0.0.0');
-        
+
         // Parse description field which contains JSON with additional metadata
         let metadata: any = {};
         if (info.description && typeof info.description === 'string') {
@@ -650,7 +650,7 @@ class McpConnection {
             metadata = { description: info.description };
           }
         }
-        
+
         this.serverInfo = {
           name,
           version,
@@ -661,14 +661,14 @@ class McpConnection {
         };
       }
     }
-    
+
     await this.notify("notifications/initialized", {});
     this.ready = true;
   }
 
   getServerInfo(): { name: string; version: string; description: string; authors: string; license: string; repository: string } {
-    return this.serverInfo || { 
-      name: 'minitask', 
+    return this.serverInfo || {
+      name: 'minitask',
       version: '0.0.0',
       description: 'A simple task management tool',
       authors: 'Unknown',
@@ -789,7 +789,7 @@ class MinitaskService {
     Logger.debug(`[SERVICE] Parsing tool payload...`);
     const payload = parseToolPayload(result as unknown as ToolCallEnvelope);
     Logger.debug(`[SERVICE] Parsed payload: ${JSON.stringify(payload)}`);
-    
+
     const taskList = toTaskListResult(payload);
     Logger.info(`[SERVICE] Task list has ${taskList.tasks.length} tasks`);
     Logger.debug(`[SERVICE] Tasks: ${JSON.stringify(taskList)}`);
@@ -799,9 +799,9 @@ class MinitaskService {
   async createTask(content: string): Promise<void> {
     await this.connection.request("tools/call", {
       name: "new",
-      arguments: { 
+      arguments: {
         file: this.taskFile,
-        content 
+        content
       },
     });
   }
@@ -867,8 +867,8 @@ class TaskFileWatcher {
       null,
     );
 
-    this.monitor.connect("changed", (_monitor, file, _other, eventType) => {
-      if (file?.get_basename() !== this.filename) {
+    this.monitor!.connect("changed", (_monitor, file, _other, eventType) => {
+      if (!file || file.get_basename() !== this.filename) {
         return;
       }
 
@@ -1048,16 +1048,16 @@ class MainWindowFactory {
     const taskEntry = createEntry("new task content", { hexpand: true });
     const addButton = createButton("add", () => {});
     const refreshButton = createButton("refresh", () => {});
-    
+
     const stateFilter: GtkDropDown = Gtk.DropDown.new_from_strings([
       "all",
       ...TASK_STATES,
     ]);
     stateFilter.set_selected(0);
-    
+
     const epicFilter = createEntry("filter by epic text...", { hexpand: true });
     const statusLabel = createLabel("connecting...");
-    
+
     const taskList: GtkListBox = new Gtk.ListBox({
       selection_mode: Gtk.SelectionMode.NONE,
     });
@@ -1100,19 +1100,19 @@ class MainWindowFactory {
 
     // Create menu model
     const menuModel = new Gio.Menu();
-    
+
     // File menu
     const fileMenu = new Gio.Menu();
     fileMenu.append("Open Task File...", "app.open");
     fileMenu.append("Close Window", "app.close");
     menuModel.append_submenu("File", fileMenu);
-    
+
     // Help menu
     const helpMenu = new Gio.Menu();
     helpMenu.append("About", "app.about");
     helpMenu.append("Quit", "app.quit");
     menuModel.append_submenu("Help", helpMenu);
-    
+
     // Create menu button and add to header bar
     const menuButton = new Gtk.MenuButton();
     menuButton.set_icon_name("open-menu-symbolic");
@@ -1221,10 +1221,10 @@ class MainWindowController {
     try {
       // Stop watching the old file
       this.fileWatcher.stop();
-      
+
       // Update the service with new file path
       this.service.setTaskFile(newPath);
-      
+
       // Start watching the new file
       this.fileWatcher = new TaskFileWatcher({
         path: newPath,
@@ -1233,7 +1233,7 @@ class MainWindowController {
         },
       });
       this.fileWatcher.start();
-      
+
       // Reload tasks from new file
       await this.reload();
       this.setStatus(`opened ${newPath}`);
@@ -1342,7 +1342,7 @@ class MainWindowController {
   private renderTasks(tasks: TaskRecord[]): void {
     Logger.info(`[RENDER] renderTasks called with ${tasks.length} tasks`);
     Logger.debug(`[RENDER] Tasks: ${JSON.stringify(tasks)}`);
-    
+
     // This view only renders the current filtered task slice and rebuilds it on
     // explicit reload/file-change events. For the expected small task counts and
     // per-row custom actions in this GUI, Gtk.ListBox keeps the code simpler than
@@ -1469,7 +1469,7 @@ class MinitaskApplication extends Gtk.Application {
             const path = file.get_path();
             if (path) {
               Logger.info(`Opening task file: ${path}`);
-              
+
               // Simply change the task file and reload
               if (this.controller) {
                 this.controller.changeTaskFile(path);
@@ -1491,15 +1491,15 @@ class MinitaskApplication extends Gtk.Application {
     }
 
   private handleAbout(): void {
-      const serverInfo = this.mcpConnection?.getServerInfo() || { 
-        name: 'minitask', 
+      const serverInfo = this.mcpConnection?.getServerInfo() || {
+        name: 'minitask',
         version: '0.0.0',
         description: 'A simple task management tool',
         authors: 'Unknown',
         license: 'MIT',
         repository: '',
       };
-      
+
       const aboutDialog = new Gtk.AboutDialog({
         transient_for: this.active_window as GtkApplicationWindow,
         modal: true,
