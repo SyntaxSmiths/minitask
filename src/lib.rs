@@ -1,23 +1,27 @@
 use clap::Subcommand;
-use command_fds::{CommandFdExt, FdMapping};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read, Seek, Write};
 use std::path::PathBuf;
+
+#[cfg(feature = "gui")]
+use command_fds::{CommandFdExt, FdMapping};
+#[cfg(feature = "gui")]
 use std::process::{Command, Stdio};
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "gui"))]
 use std::os::fd::OwnedFd;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "gui"))]
 use std::os::unix::net::UnixStream;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "gui"))]
 use tokio::net::UnixStream as TokioUnixStream;
 
 pub mod mcp;
 
-include!(concat!(env!("OUT_DIR"), "/embedded_gui.rs"));
+#[cfg(feature = "gui")]
+const EMBEDDED_GUI_JS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/generated/gui.js"));
 
 #[derive(Debug)]
 pub enum Error {
@@ -494,7 +498,7 @@ pub fn serve_mcp() -> Result<(), Error> {
     })
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "gui"))]
 pub fn serve_gui(task_file: PathBuf) -> Result<(), Error> {
     let (gui_stream, mcp_stream) = UnixStream::pair()?;
     let gui_fd: OwnedFd = gui_stream.into();
@@ -554,8 +558,13 @@ pub fn serve_gui(task_file: PathBuf) -> Result<(), Error> {
     })
 }
 
-#[cfg(not(unix))]
+#[cfg(all(not(unix), feature = "gui"))]
 pub fn serve_gui(_task_file: PathBuf) -> Result<(), Error> {
     Err(io::Error::other("--gui is only supported on unix").into())
+}
+
+#[cfg(not(feature = "gui"))]
+pub fn serve_gui(_task_file: PathBuf) -> Result<(), Error> {
+    Err(io::Error::other("--gui feature not enabled").into())
 }
 
