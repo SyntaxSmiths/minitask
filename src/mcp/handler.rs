@@ -1,13 +1,13 @@
 //! MCP server handler and tool implementations
 
 use super::tools::*;
+use log::{debug, error, info};
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{ServerCapabilities, ServerInfo};
+use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
 use rmcp::schemars::JsonSchema;
 use rmcp::{schemars, tool, tool_router};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use log::{debug, info, error};
 
 // ============================================================================
 // Parameter Types
@@ -26,26 +26,26 @@ fn default_claim_state() -> String {
 #[serde(rename_all = "camelCase")]
 pub struct ListParams {
     /// Path to the tasks file
-    /// 
+    ///
     /// Defaults to "tasks.toml" if omitted. Use absolute paths for clarity.
     /// The file will be created if it doesn't exist.
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// Only return tasks whose `state` exactly matches this value
-    /// 
+    ///
     /// Common states: "todo", "in-progress", "review", "done", "blocked"
     /// Omit to return tasks in all states.
     pub state: Option<String>,
-    
+
     /// Only return tasks that belong to the given epic name
-    /// 
+    ///
     /// Epics are labels for grouping related tasks. Omit to return tasks
     /// from all epics.
     pub epic: Option<String>,
-    
+
     /// Include full task content and metadata instead of only a short summary
-    /// 
+    ///
     /// When false (default), only returns task ID and first line of content.
     /// Set to true when you need the complete task details including
     /// dependencies, epics, and full content.
@@ -60,9 +60,9 @@ pub struct ShowParams {
     /// Path to the tasks file
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// Task identifier such as `TASK-3`
-    /// 
+    ///
     /// Plain numbers are also accepted and normalized (e.g., "3" → "TASK-3").
     pub task_id: String,
 }
@@ -74,9 +74,9 @@ pub struct NewParams {
     /// Path to the tasks file
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// Task body text
-    /// 
+    ///
     /// This becomes the full task content. Can be multi-line.
     /// The task will be created with state "todo" and a unique ID.
     pub content: String,
@@ -89,12 +89,12 @@ pub struct EditStateParams {
     /// Path to the tasks file
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// Task identifier such as `TASK-3`
     pub task_id: String,
-    
+
     /// New state value to write into the task
-    /// 
+    ///
     /// Common states: "todo", "in-progress", "review", "done", "blocked"
     pub state: String,
 }
@@ -106,10 +106,10 @@ pub struct EditContentParams {
     /// Path to the tasks file
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// Task identifier such as `TASK-3`
     pub task_id: String,
-    
+
     /// New full task body that replaces the current content
     pub content: String,
 }
@@ -121,10 +121,10 @@ pub struct AddContentParams {
     /// Path to the tasks file
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// Task identifier such as `TASK-3`
     pub task_id: String,
-    
+
     /// Text to append to the existing task body
     pub content: String,
 }
@@ -136,12 +136,12 @@ pub struct AddDependsOnParams {
     /// Path to the tasks file
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// Task identifier such as `TASK-3`
     pub task_id: String,
-    
+
     /// Identifier of the task this task depends on
-    /// 
+    ///
     /// The dependency task must exist. This creates a blocking relationship:
     /// the task cannot be claimed until its dependencies are in "done" state.
     pub depends_on: String,
@@ -154,12 +154,12 @@ pub struct AddEpicParams {
     /// Path to the tasks file
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// Task identifier such as `TASK-3`
     pub task_id: String,
-    
+
     /// Epic name to add to the task
-    /// 
+    ///
     /// Epics are labels for grouping related tasks. A task can belong
     /// to multiple epics.
     pub epic: String,
@@ -172,10 +172,10 @@ pub struct DelDependsOnParams {
     /// Path to the tasks file
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// Task identifier such as `TASK-3`
     pub task_id: String,
-    
+
     /// Dependency task identifier to remove
     pub depends_on: String,
 }
@@ -187,10 +187,10 @@ pub struct DelEpicParams {
     /// Path to the tasks file
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// Task identifier such as `TASK-3`
     pub task_id: String,
-    
+
     /// Epic name to remove from the task
     pub epic: String,
 }
@@ -202,20 +202,20 @@ pub struct ClaimParams {
     /// Path to the tasks file
     #[serde(default = "default_task_file")]
     pub file: PathBuf,
-    
+
     /// State to assign to the claimed task
-    /// 
+    ///
     /// Typically "in-progress" to indicate work has started.
     pub new_state: String,
-    
+
     /// Only consider tasks currently in this source state
-    /// 
+    ///
     /// Defaults to "todo". Use this to claim tasks from a specific state.
     #[serde(default = "default_claim_state")]
     pub state: String,
-    
+
     /// If set, only consider tasks that belong to this epic
-    /// 
+    ///
     /// Use to claim work from a specific project or feature area.
     pub epic: Option<String>,
 }
@@ -263,23 +263,25 @@ impl MinitaskHandler {
     /// - Combine filters: state="todo" + epic="feature-x" for targeted work
     #[tool(name = "list")]
     async fn list(&self, params: Parameters<ListParams>) -> String {
-        info!("MCP list tool called with file: {:?}, state: {:?}, epic: {:?}, verbose: {}", 
-              params.0.file, params.0.state, params.0.epic, params.0.verbose);
-        
+        info!(
+            "MCP list tool called with file: {:?}, state: {:?}, epic: {:?}, verbose: {}",
+            params.0.file, params.0.state, params.0.epic, params.0.verbose
+        );
+
         match execute_list(params.0) {
             Ok(result) => {
                 info!("List tool returned {} tasks", result.tasks.len());
                 debug!("Tasks: {:?}", result.tasks);
                 serde_json::to_string_pretty(&result)
                     .unwrap_or_else(|_| r#"{"tasks":[]}"#.to_string())
-            },
+            }
             Err(e) => {
                 error!("List tool error: {}", e);
                 format!(r#"{{"error":"{}"}}"#, e)
             }
         }
     }
-    
+
     /// Return one task by ID. Use this when you already know the task ID and need the
     /// current full task record before deciding what to change
     ///
@@ -298,12 +300,13 @@ impl MinitaskHandler {
     #[tool(name = "show")]
     async fn show(&self, params: Parameters<ShowParams>) -> String {
         match execute_show(params.0) {
-            Ok(result) => serde_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| "{}".to_string()),
+            Ok(result) => {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            }
             Err(e) => format!(r#"{{"error":"{}"}}"#, e),
         }
     }
-    
+
     /// Create a new task. The provided content becomes the full task body
     ///
     /// Creates a new task with a unique ID (e.g., "TASK-0", "TASK-1", etc.) and
@@ -324,12 +327,13 @@ impl MinitaskHandler {
     #[tool(name = "new")]
     async fn new_task(&self, params: Parameters<NewParams>) -> String {
         match execute_new(params.0) {
-            Ok(result) => serde_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| "{}".to_string()),
+            Ok(result) => {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            }
             Err(e) => format!(r#"{{"error":"{}"}}"#, e),
         }
     }
-    
+
     /// Change the `state` field of an existing task
     ///
     /// Updates a task's state to reflect its current status in your workflow.
@@ -351,12 +355,13 @@ impl MinitaskHandler {
     #[tool(name = "edit-state")]
     async fn edit_state(&self, params: Parameters<EditStateParams>) -> String {
         match execute_edit_state(params.0) {
-            Ok(result) => serde_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| "{}".to_string()),
+            Ok(result) => {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            }
             Err(e) => format!(r#"{{"error":"{}"}}"#, e),
         }
     }
-    
+
     /// Replace the full text content of an existing task
     ///
     /// Completely replaces a task's content with new text. Use this when:
@@ -371,12 +376,13 @@ impl MinitaskHandler {
     #[tool(name = "edit-content")]
     async fn edit_content(&self, params: Parameters<EditContentParams>) -> String {
         match execute_edit_content(params.0) {
-            Ok(result) => serde_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| "{}".to_string()),
+            Ok(result) => {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            }
             Err(e) => format!(r#"{{"error":"{}"}}"#, e),
         }
     }
-    
+
     /// Append additional text to the end of an existing task's content
     ///
     /// Adds new text to the end of a task's existing content without replacing
@@ -393,12 +399,13 @@ impl MinitaskHandler {
     #[tool(name = "add-content")]
     async fn add_content(&self, params: Parameters<AddContentParams>) -> String {
         match execute_add_content(params.0) {
-            Ok(result) => serde_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| "{}".to_string()),
+            Ok(result) => {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            }
             Err(e) => format!(r#"{{"error":"{}"}}"#, e),
         }
     }
-    
+
     /// Add a dependency so this task records that it depends on another task
     ///
     /// Creates a blocking relationship between tasks. The dependent task cannot
@@ -420,12 +427,13 @@ impl MinitaskHandler {
     #[tool(name = "add-depends-on")]
     async fn add_depends_on(&self, params: Parameters<AddDependsOnParams>) -> String {
         match execute_add_depends_on(params.0) {
-            Ok(result) => serde_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| "{}".to_string()),
+            Ok(result) => {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            }
             Err(e) => format!(r#"{{"error":"{}"}}"#, e),
         }
     }
-    
+
     /// Attach an epic label to an existing task
     ///
     /// Adds an epic label to categorize and group related tasks. A task can belong
@@ -446,12 +454,13 @@ impl MinitaskHandler {
     #[tool(name = "add-epic")]
     async fn add_epic(&self, params: Parameters<AddEpicParams>) -> String {
         match execute_add_epic(params.0) {
-            Ok(result) => serde_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| "{}".to_string()),
+            Ok(result) => {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            }
             Err(e) => format!(r#"{{"error":"{}"}}"#, e),
         }
     }
-    
+
     /// Remove one dependency from an existing task
     ///
     /// Removes a blocking relationship between tasks. Use this when:
@@ -466,12 +475,13 @@ impl MinitaskHandler {
     #[tool(name = "del-depends-on")]
     async fn del_depends_on(&self, params: Parameters<DelDependsOnParams>) -> String {
         match execute_del_depends_on(params.0) {
-            Ok(result) => serde_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| "{}".to_string()),
+            Ok(result) => {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            }
             Err(e) => format!(r#"{{"error":"{}"}}"#, e),
         }
     }
-    
+
     /// Remove one epic label from an existing task
     ///
     /// Removes an epic label from a task. Use this when:
@@ -485,12 +495,13 @@ impl MinitaskHandler {
     #[tool(name = "del-epic")]
     async fn del_epic(&self, params: Parameters<DelEpicParams>) -> String {
         match execute_del_epic(params.0) {
-            Ok(result) => serde_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| "{}".to_string()),
+            Ok(result) => {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            }
             Err(e) => format!(r#"{{"error":"{}"}}"#, e),
         }
     }
-    
+
     /// Move the next matching task from one state to another and return the claimed task.
     /// Use this to reserve work before editing it further
     ///
@@ -518,8 +529,9 @@ impl MinitaskHandler {
     #[tool]
     async fn claim(&self, params: Parameters<ClaimParams>) -> String {
         match execute_claim(params.0) {
-            Ok(result) => serde_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| "{}".to_string()),
+            Ok(result) => {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            }
             Err(e) => format!(r#"{{"error":"{}"}}"#, e),
         }
     }
@@ -528,7 +540,18 @@ impl MinitaskHandler {
 #[rmcp::tool_handler(router = self.tool_router)]
 impl rmcp::ServerHandler for MinitaskHandler {
     fn get_info(&self) -> ServerInfo {
+        let metadata = serde_json::json!({
+            "description": env!("CARGO_PKG_DESCRIPTION"),
+            "authors": env!("CARGO_PKG_AUTHORS"),
+            "license": env!("CARGO_PKG_LICENSE"),
+            "repository": env!("CARGO_PKG_REPOSITORY"),
+        });
+        
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+            ).with_description(&metadata.to_string()))
             .with_instructions(
                 "Minitask MCP server provides task management tools for tracking work items.\n\
                 Each tool accepts a 'file' parameter (defaults to 'tasks.toml').\n\

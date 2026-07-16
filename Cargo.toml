@@ -6,7 +6,7 @@ build = "build.rs"
 authors = ["Eddy S."]
 license = "MIT"
 description = "A simple task management tool with MCP server support"
-repository = "https://github.com/yourusername/minitask"
+repository = "https://github.com/fneddy/minitask"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }

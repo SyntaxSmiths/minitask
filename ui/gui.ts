@@ -24,13 +24,7 @@ declare const imports: {
 };
 declare function print(message: string): void;
 
-// Build-time metadata injected by build.rs
-declare const MINITASK_VERSION: string;
-declare const MINITASK_NAME: string;
-declare const MINITASK_AUTHORS: string;
-declare const MINITASK_REPOSITORY: string;
-declare const MINITASK_LICENSE: string;
-declare const MINITASK_DESCRIPTION: string;
+
 
 type GtkModule = GtkNamespace;
 type AdwModule = AdwNamespace;
@@ -190,19 +184,35 @@ function requireEnvString(name: string): string {
   return value;
 }
 
-function logDebug(message: string): void {
-  if (envString("MINITASK_GUI_DEBUG")) {
-    print(`[DEBUG] ${message}`);
-  }
-}
+/**
+ * Centralized logging and error handling utilities.
+ * Provides consistent logging across the application with debug, info, and error levels.
+ */
+const Logger = {
+  debug(message: string): void {
+    if (envString("MINITASK_GUI_DEBUG")) {
+      print(`[DEBUG] ${message}`);
+    }
+  },
 
-function logInfo(message: string): void {
-  print(`[INFO] ${message}`);
-}
+  info(message: string): void {
+    print(`[INFO] ${message}`);
+  },
 
-function logErr(message: string): void {
-  print(`[ERROR] ${message}`);
-}
+  error(message: string): void {
+    print(`[ERROR] ${message}`);
+  },
+
+  // Helper to log and show error to user
+  showError(statusLabel: GtkLabel | null, message: string, error?: unknown): void {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const fullMessage = error ? `${message}: ${errorMsg}` : message;
+    this.error(fullMessage);
+    if (statusLabel) {
+      statusLabel.set_label(`❌ ${message}`);
+    }
+  },
+};
 
 function decodeBytes(bytes: Uint8Array): string {
   return imports.byteArray.toString(bytes);
@@ -212,94 +222,203 @@ function encodeLine(message: JsonValue): Uint8Array {
   return ByteArray.fromString(`${JSON.stringify(message)}\n`);
 }
 
-function isJsonMap(value: JsonValue | undefined): value is JsonMap {
-  return (
-    value !== null &&
-    value !== undefined &&
-    !Array.isArray(value) &&
-    typeof value === "object"
-  );
+/**
+ * Widget creation helpers for common GTK patterns.
+ * These functions reduce boilerplate when creating GTK widgets.
+ */
+
+/**
+ * Creates a GTK Box container with specified orientation and spacing.
+ * @param orientation - GTK.Orientation.HORIZONTAL or GTK.Orientation.VERTICAL
+ * @param spacing - Space between child widgets in pixels (default: 6)
+ * @param props - Additional GTK.Box properties
+ * @returns A configured GTK Box widget
+ */
+function createBox(
+  orientation: number,
+  spacing = 6,
+  props?: Record<string, unknown>
+): GtkBox {
+  return new Gtk.Box({
+    orientation,
+    spacing,
+    ...props,
+  });
 }
 
-function asArray(value: JsonValue | undefined): JsonValue[] {
-  return Array.isArray(value) ? value : [];
+/**
+ * Creates a horizontal GTK Box container.
+ * @param spacing - Space between child widgets in pixels (default: 6)
+ * @param props - Additional GTK.Box properties
+ * @returns A horizontal GTK Box widget
+ */
+function createHBox(spacing = 6, props?: Record<string, unknown>): GtkBox {
+  return createBox(Gtk.Orientation.HORIZONTAL, spacing, props);
 }
 
-function asString(value: JsonValue | undefined, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
+/**
+ * Creates a vertical GTK Box container.
+ * @param spacing - Space between child widgets in pixels (default: 6)
+ * @param props - Additional GTK.Box properties
+ * @returns A vertical GTK Box widget
+ */
+function createVBox(spacing = 6, props?: Record<string, unknown>): GtkBox {
+  return createBox(Gtk.Orientation.VERTICAL, spacing, props);
 }
 
-function asStringArray(value: JsonValue | undefined): string[] {
-  return asArray(value).filter(
-    (item): item is string => typeof item === "string",
-  );
+/**
+ * Creates a GTK Label widget with text.
+ * @param text - The label text to display
+ * @param props - Additional GTK.Label properties
+ * @returns A configured GTK Label widget
+ */
+function createLabel(
+  text: string,
+  props?: Record<string, unknown>
+): GtkLabel {
+  return new Gtk.Label({
+    label: text,
+    xalign: 0,
+    wrap: true,
+    ...props,
+  });
 }
 
-function isRpcFailure(value: JsonMap): boolean {
-  return (
-    typeof value.id === "number" &&
-    isJsonMap(value.error) &&
-    typeof value.error.code === "number" &&
-    typeof value.error.message === "string"
-  );
+/**
+ * Creates a GTK Button with a click handler.
+ * @param label - The button label text
+ * @param onClick - Callback function when button is clicked
+ * @param props - Additional GTK.Button properties
+ * @returns A configured GTK Button widget
+ */
+function createButton(
+  label: string,
+  onClick: () => void,
+  props?: Record<string, unknown>
+): GtkButton {
+  const button = new Gtk.Button({
+    label,
+    ...props,
+  });
+  button.connect("clicked", onClick);
+  return button;
 }
 
-function isRpcSuccess(value: JsonMap): boolean {
-  return typeof value.id === "number" && "result" in value;
+/**
+ * Creates a GTK Entry (text input) widget.
+ * @param placeholder - Placeholder text shown when empty (default: "")
+ * @param props - Additional GTK.Entry properties
+ * @returns A configured GTK Entry widget
+ */
+function createEntry(
+  placeholder = "",
+  props?: Record<string, unknown>
+): GtkEntry {
+  return new Gtk.Entry({
+    placeholder_text: placeholder,
+    ...props,
+  });
 }
 
-function isRpcNotification(value: JsonMap): boolean {
-  return typeof value.method === "string" && !("id" in value);
-}
+/**
+ * Type conversion and validation utilities for JSON-RPC data handling.
+ * Provides safe type checking and conversion functions for JsonValue types.
+ */
+const TypeUtils = {
+  isJsonMap(value: JsonValue | undefined): value is JsonMap {
+    return (
+      value !== null &&
+      value !== undefined &&
+      !Array.isArray(value) &&
+      typeof value === "object"
+    );
+  },
 
-function isRpcMessage(value: JsonValue): boolean {
-  if (!isJsonMap(value) || value.jsonrpc !== "2.0") {
-    return false;
-  }
+  asArray(value: JsonValue | undefined): JsonValue[] {
+    return Array.isArray(value) ? value : [];
+  },
 
-  return isRpcFailure(value) || isRpcSuccess(value) || isRpcNotification(value);
-}
+  asString(value: JsonValue | undefined, fallback = ""): string {
+    return typeof value === "string" ? value : fallback;
+  },
+
+  asStringArray(value: JsonValue | undefined): string[] {
+    return this.asArray(value).filter(
+      (item): item is string => typeof item === "string",
+    );
+  },
+};
+
+/**
+ * JSON-RPC 2.0 message validation utilities.
+ * Validates message structure according to the JSON-RPC 2.0 specification.
+ */
+const RpcValidator = {
+  isFailure(value: JsonMap): boolean {
+    return (
+      typeof value.id === "number" &&
+    TypeUtils.isJsonMap(value.error) &&
+      typeof value.error.code === "number" &&
+      typeof value.error.message === "string"
+    );
+  },
+
+  isSuccess(value: JsonMap): boolean {
+    return typeof value.id === "number" && "result" in value;
+  },
+
+  isNotification(value: JsonMap): boolean {
+    return typeof value.method === "string" && !("id" in value);
+  },
+
+  isMessage(value: JsonValue): boolean {
+  if (!TypeUtils.isJsonMap(value) || value.jsonrpc !== "2.0") {
+      return false;
+    }
+    return this.isFailure(value) || this.isSuccess(value) || this.isNotification(value);
+  },
+};
 
 function parseToolPayload(result: ToolCallEnvelope): JsonValue {
-  logDebug(`[PARSE] parseToolPayload called with: ${JSON.stringify(result)}`);
+  Logger.debug(`[PARSE] parseToolPayload called with: ${JSON.stringify(result)}`);
   
   if (result.structuredContent !== undefined) {
-    logDebug(`[PARSE] Using structuredContent: ${JSON.stringify(result.structuredContent)}`);
+    Logger.debug(`[PARSE] Using structuredContent: ${JSON.stringify(result.structuredContent)}`);
     return result.structuredContent;
   }
 
-  logDebug(`[PARSE] No structuredContent, parsing content array`);
+  Logger.debug(`[PARSE] No structuredContent, parsing content array`);
   const text = (result.content ?? [])
     .filter((item) => item.type === "text" && typeof item.text === "string")
     .map((item) => item.text ?? "")
     .join("\n")
     .trim();
 
-  logDebug(`[PARSE] Extracted text (${text.length} chars): ${text.substring(0, 200)}`);
+  Logger.debug(`[PARSE] Extracted text (${text.length} chars): ${text.substring(0, 200)}`);
 
   if (!text) {
-    logErr(`[PARSE] No text found, returning null`);
+    Logger.error(`[PARSE] No text found, returning null`);
     return null;
   }
 
   try {
     const parsed = JSON.parse(text) as JsonValue;
-    logDebug(`[PARSE] Successfully parsed JSON`);
+    Logger.debug(`[PARSE] Successfully parsed JSON`);
     return parsed;
   } catch (e) {
-    logErr(`[PARSE] Failed to parse JSON: ${e}`);
+    Logger.error(`[PARSE] Failed to parse JSON: ${e}`);
     return text;
   }
 }
 
 function toTaskRecord(value: JsonValue): TaskRecord {
-  const object = isJsonMap(value) ? value : {};
+  const object = TypeUtils.isJsonMap(value) ? value : {};
   return {
-    name: asString(object.name),
-    state: asString(object.state),
-    content: asString(object.content),
-    depends_on: asStringArray(object.depends_on),
-    epic: asStringArray(object.epic),
+    name: TypeUtils.asString(object.name),
+    state: TypeUtils.asString(object.state),
+    content: TypeUtils.asString(object.content),
+    depends_on: TypeUtils.asStringArray(object.depends_on),
+    epic: TypeUtils.asStringArray(object.epic),
   };
 }
 
@@ -308,13 +427,18 @@ function toTaskListResult(value: JsonValue): TaskListResult {
     return { tasks: value.map(toTaskRecord) };
   }
 
-  const object = isJsonMap(value) ? value : {};
+  const object = TypeUtils.isJsonMap(value) ? value : {};
   const tasks = Array.isArray(object.tasks)
     ? object.tasks.map(toTaskRecord)
     : [];
   return { tasks };
 }
 
+/**
+ * Handles line-delimited JSON communication over Unix streams.
+ * Reads JSON-RPC messages line-by-line from input stream and sends messages to output stream.
+ * Automatically handles message parsing and invokes callback for each received message.
+ */
 class JsonLineChannel {
   private readonly input: GioInputStream;
   private readonly output: GioOutputStream;
@@ -376,7 +500,7 @@ class JsonLineChannel {
       this.output.close(null);
     } catch (error) {
       if (!this.isExpectedCloseError(error)) {
-        logErr(`closing minitask output: ${error}`);
+        Logger.error(`closing minitask output: ${error}`);
       }
     }
   }
@@ -405,7 +529,7 @@ class JsonLineChannel {
             pump();
           } catch (error) {
             if (!this.closed && !this.isExpectedCloseError(error)) {
-              logErr(`minitask stdout: ${error}`);
+              Logger.error(`minitask stdout: ${error}`);
             }
           }
         },
@@ -438,18 +562,18 @@ class JsonLineChannel {
   private parseMessage(line: string): RpcMessage | null {
     try {
       const parsed = JSON.parse(line) as JsonValue;
-      if (!isJsonMap(parsed) || !isRpcMessage(parsed)) {
-        logErr(`Ignoring unexpected MCP message: ${line}`);
+    if (!TypeUtils.isJsonMap(parsed) || !RpcValidator.isMessage(parsed)) {
+        Logger.error(`Ignoring unexpected MCP message: ${line}`);
         return null;
       }
 
-      if (isRpcNotification(parsed)) {
+    if (RpcValidator.isNotification(parsed)) {
         return null;
       }
 
       return parsed as unknown as RpcMessage;
     } catch (error) {
-      logErr(`Failed to parse MCP message: ${line} - ${error}`);
+      Logger.error(`Failed to parse MCP message: ${line} - ${error}`);
       return null;
     }
   }
@@ -466,11 +590,17 @@ class JsonLineChannel {
   }
 }
 
+/**
+ * Manages MCP (Model Context Protocol) connection over a Unix socket.
+ * Handles JSON-RPC request/response lifecycle, initialization handshake,
+ * and notification delivery. Maintains pending request state for async operations.
+ */
 class McpConnection {
   private readonly channel: JsonLineChannel;
   private readonly pending = new Map<RpcId, PendingRequest>();
   private nextId = 1;
   private ready = false;
+  private serverInfo: { name: string; version: string; description: string; authors: string; license: string; repository: string } | null = null;
 
   constructor() {
     const socketFd = requireEnvString("MINITASK_GUI_SOCKET_FD");
@@ -494,7 +624,7 @@ class McpConnection {
     }
 
     this.channel.start();
-    await this.request("initialize", {
+    const result = await this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: {
@@ -502,8 +632,49 @@ class McpConnection {
         version: "0.1.0",
       },
     });
+    
+    // Extract serverInfo from initialize response
+    if (result && typeof result === 'object' && 'serverInfo' in result) {
+      const info = (result as any).serverInfo;
+      if (info && typeof info === 'object') {
+        const name = String(info.name || 'minitask');
+        const version = String(info.version || '0.0.0');
+        
+        // Parse description field which contains JSON with additional metadata
+        let metadata: any = {};
+        if (info.description && typeof info.description === 'string') {
+          try {
+            metadata = JSON.parse(info.description);
+          } catch (e) {
+            // If parsing fails, use description as-is
+            metadata = { description: info.description };
+          }
+        }
+        
+        this.serverInfo = {
+          name,
+          version,
+          description: metadata.description || 'A simple task management tool',
+          authors: metadata.authors || 'Unknown',
+          license: metadata.license || 'MIT',
+          repository: metadata.repository || '',
+        };
+      }
+    }
+    
     await this.notify("notifications/initialized", {});
     this.ready = true;
+  }
+
+  getServerInfo(): { name: string; version: string; description: string; authors: string; license: string; repository: string } {
+    return this.serverInfo || { 
+      name: 'minitask', 
+      version: '0.0.0',
+      description: 'A simple task management tool',
+      authors: 'Unknown',
+      license: 'MIT',
+      repository: '',
+    };
   }
 
   async request(method: string, params?: JsonMap): Promise<JsonValue> {
@@ -563,6 +734,11 @@ class McpConnection {
   }
 }
 
+/**
+ * High-level service interface for minitask operations.
+ * Wraps MCP connection and provides task management methods:
+ * listing, creating, and updating tasks via the minitask MCP server.
+ */
 class MinitaskService {
   private readonly connection: McpConnection;
   private taskFile: string;
@@ -596,27 +772,27 @@ class MinitaskService {
       args.epic = epicFilter;
     }
 
-    logDebug(`[SERVICE] Calling list with args: ${JSON.stringify(args)}`);
+    Logger.debug(`[SERVICE] Calling list with args: ${JSON.stringify(args)}`);
     const result = await this.connection.request("tools/call", {
       name: "list",
       arguments: args,
     });
 
-    logDebug(`[SERVICE] List result type: ${typeof result}`);
-    logDebug(`[SERVICE] List result: ${JSON.stringify(result)}`);
+    Logger.debug(`[SERVICE] List result type: ${typeof result}`);
+    Logger.debug(`[SERVICE] List result: ${JSON.stringify(result)}`);
 
-    if (!isJsonMap(result)) {
-      logErr(`[SERVICE] Result is not a JsonMap, returning empty array`);
+    if (!TypeUtils.isJsonMap(result)) {
+      Logger.error(`[SERVICE] Result is not a JsonMap, returning empty array`);
       return [];
     }
 
-    logDebug(`[SERVICE] Parsing tool payload...`);
+    Logger.debug(`[SERVICE] Parsing tool payload...`);
     const payload = parseToolPayload(result as unknown as ToolCallEnvelope);
-    logDebug(`[SERVICE] Parsed payload: ${JSON.stringify(payload)}`);
+    Logger.debug(`[SERVICE] Parsed payload: ${JSON.stringify(payload)}`);
     
     const taskList = toTaskListResult(payload);
-    logInfo(`[SERVICE] Task list has ${taskList.tasks.length} tasks`);
-    logDebug(`[SERVICE] Tasks: ${JSON.stringify(taskList)}`);
+    Logger.info(`[SERVICE] Task list has ${taskList.tasks.length} tasks`);
+    Logger.debug(`[SERVICE] Tasks: ${JSON.stringify(taskList)}`);
     return taskList.tasks;
   }
 
@@ -657,6 +833,12 @@ class MinitaskService {
   }
 }
 
+/**
+ * Monitors a task file for external changes and triggers reload callbacks.
+ * Tracks file version (etag + size) to detect changes and distinguish
+ * between own writes and external modifications. Prevents reload loops
+ * by ignoring changes immediately after own writes.
+ */
 class TaskFileWatcher {
   private readonly file: GioFile;
   private monitor: GioFileMonitor | null = null;
@@ -754,69 +936,36 @@ class TaskRowFactory {
     onMove: TaskMoveHandler,
     onSaveContent: (taskId: string, content: string) => void,
   ): GtkListBoxRow {
-    const titleLabel: GtkLabel = new Gtk.Label({
-      label: task.name,
-      xalign: 0,
-      hexpand: true,
-    });
+    const titleLabel = createLabel(task.name, { hexpand: true });
     titleLabel.add_css_class("heading");
 
-    const stateLabel: GtkLabel = new Gtk.Label({
-      label: task.state,
-      xalign: 1,
-    });
+    const stateLabel = createLabel(task.state, { xalign: 1 });
     stateLabel.add_css_class("dim-label");
 
     const metadataLabels: GtkLabel[] = [];
     if (task.epic.length > 0) {
-      metadataLabels.push(
-        new Gtk.Label({
-          label: `epic: ${task.epic.join(", ")}`,
-          xalign: 0,
-          wrap: true,
-        }),
-      );
+      metadataLabels.push(createLabel(`epic: ${task.epic.join(", ")}`));
     }
     if (task.depends_on.length > 0) {
-      metadataLabels.push(
-        new Gtk.Label({
-          label: `depends on: ${task.depends_on.join(", ")}`,
-          xalign: 0,
-          wrap: true,
-        }),
-      );
+      metadataLabels.push(createLabel(`depends on: ${task.depends_on.join(", ")}`));
     }
 
     const actionButtons: GtkButton[] = TASK_STATES.map((nextState) => {
-      const action: GtkButton = new Gtk.Button({
-        label: nextState,
+      const action = createButton(nextState, () => onMove(task.name, nextState), {
         sensitive: true,
       });
       if (nextState === task.state) {
         action.add_css_class("suggested-action");
       }
-      action.connect("clicked", () => {
-        onMove(task.name, nextState);
-      });
       return action;
     });
 
-    const header: GtkBox = new Gtk.Box({
-      orientation: Gtk.Orientation.HORIZONTAL,
-      spacing: 12,
-    });
+    const header = createHBox(12);
     header.append(titleLabel);
     header.append(stateLabel);
 
-    const contentArea: GtkBox = new Gtk.Box({
-      orientation: Gtk.Orientation.VERTICAL,
-      spacing: 6,
-    });
-    const contentLabel: GtkLabel = new Gtk.Label({
-      label: task.content,
-      xalign: 0,
-      wrap: true,
-    });
+    const contentArea = createVBox();
+    const contentLabel = createLabel(task.content);
     contentArea.append(contentLabel);
 
     const showEditor = (): void => {
@@ -844,10 +993,7 @@ class TaskRowFactory {
         contentArea.append(contentLabel);
       };
 
-      const saveButton: GtkButton = new Gtk.Button({
-        label: "save",
-      });
-      saveButton.connect("clicked", () => {
+      const saveButton = createButton("save", () => {
         const contentBuffer = contentView.get_buffer();
         const [start, end] = contentBuffer.get_bounds();
         const newContent = contentBuffer.get_text(start, end, false);
@@ -857,17 +1003,9 @@ class TaskRowFactory {
         restoreNormalView();
       });
 
-      const discardButton: GtkButton = new Gtk.Button({
-        label: "discard",
-      });
-      discardButton.connect("clicked", () => {
-        restoreNormalView();
-      });
+      const discardButton = createButton("discard", restoreNormalView);
 
-      const buttonBox: GtkBox = new Gtk.Box({
-        orientation: Gtk.Orientation.HORIZONTAL,
-        spacing: 6,
-      });
+      const buttonBox = createHBox();
       buttonBox.append(saveButton);
       buttonBox.append(discardButton);
 
@@ -881,17 +1019,12 @@ class TaskRowFactory {
     });
     contentLabel.add_controller(clickController);
 
-    const actions: GtkBox = new Gtk.Box({
-      orientation: Gtk.Orientation.HORIZONTAL,
-      spacing: 6,
-    });
+    const actions = createHBox();
     for (const actionButton of actionButtons) {
       actions.append(actionButton);
     }
 
-    const contentBox: GtkBox = new Gtk.Box({
-      orientation: Gtk.Orientation.VERTICAL,
-      spacing: 6,
+    const contentBox = createVBox(6, {
       margin_top: 10,
       margin_bottom: 10,
       margin_start: 10,
@@ -912,63 +1045,37 @@ class TaskRowFactory {
 
 class MainWindowFactory {
   create(app: GtkApplication): UiRefs {
-    const taskEntry: GtkEntry = new Gtk.Entry({
-      hexpand: true,
-      placeholder_text: "new task content",
-    });
-    const addButton: GtkButton = new Gtk.Button({ label: "add" });
-    const refreshButton: GtkButton = new Gtk.Button({ label: "refresh" });
+    const taskEntry = createEntry("new task content", { hexpand: true });
+    const addButton = createButton("add", () => {});
+    const refreshButton = createButton("refresh", () => {});
+    
     const stateFilter: GtkDropDown = Gtk.DropDown.new_from_strings([
       "all",
       ...TASK_STATES,
     ]);
     stateFilter.set_selected(0);
-    const epicFilter: GtkEntry = new Gtk.Entry({
-      hexpand: true,
-      placeholder_text: "filter by epic text...",
-    });
-    const statusLabel: GtkLabel = new Gtk.Label({
-      label: "connecting...",
-      xalign: 0,
-    });
+    
+    const epicFilter = createEntry("filter by epic text...", { hexpand: true });
+    const statusLabel = createLabel("connecting...");
+    
     const taskList: GtkListBox = new Gtk.ListBox({
       selection_mode: Gtk.SelectionMode.NONE,
     });
 
-    const toolbar: GtkBox = new Gtk.Box({
-      orientation: Gtk.Orientation.HORIZONTAL,
-      spacing: 6,
-    });
+    const toolbar = createHBox();
     toolbar.append(taskEntry);
     toolbar.append(addButton);
     toolbar.append(refreshButton);
 
-    const stateFilterLabel: GtkLabel = new Gtk.Label({
-      label: "State Filter:",
-      xalign: 0,
-    });
-    const stateFilterBox: GtkBox = new Gtk.Box({
-      orientation: Gtk.Orientation.HORIZONTAL,
-      spacing: 6,
-    });
-    stateFilterBox.append(stateFilterLabel);
+    const stateFilterBox = createHBox();
+    stateFilterBox.append(createLabel("State Filter:"));
     stateFilterBox.append(stateFilter);
 
-    const epicFilterLabel: GtkLabel = new Gtk.Label({
-      label: "Epic Filter:",
-      xalign: 0,
-    });
-    const epicFilterBox: GtkBox = new Gtk.Box({
-      orientation: Gtk.Orientation.HORIZONTAL,
-      spacing: 6,
-    });
-    epicFilterBox.append(epicFilterLabel);
+    const epicFilterBox = createHBox();
+    epicFilterBox.append(createLabel("Epic Filter:"));
     epicFilterBox.append(epicFilter);
 
-    const filtersBox: GtkBox = new Gtk.Box({
-      orientation: Gtk.Orientation.HORIZONTAL,
-      spacing: 12,
-    });
+    const filtersBox = createHBox(12);
     filtersBox.append(stateFilterBox);
     filtersBox.append(epicFilterBox);
 
@@ -978,9 +1085,7 @@ class MainWindowFactory {
     });
     scroller.set_child(taskList);
 
-    const content: GtkBox = new Gtk.Box({
-      orientation: Gtk.Orientation.VERTICAL,
-      spacing: 12,
+    const content = createVBox(12, {
       margin_top: 12,
       margin_bottom: 12,
       margin_start: 12,
@@ -1041,6 +1146,12 @@ class MainWindowFactory {
   }
 }
 
+/**
+ * Main window controller that coordinates UI interactions and task operations.
+ * Manages the lifecycle of task list display, handles user input events,
+ * coordinates with MinitaskService for backend operations, and manages
+ * file watching for automatic reload on external changes.
+ */
 class MainWindowController {
   private readonly ui: UiRefs;
   private readonly service: MinitaskService;
@@ -1229,8 +1340,8 @@ class MainWindowController {
   }
 
   private renderTasks(tasks: TaskRecord[]): void {
-    logInfo(`[RENDER] renderTasks called with ${tasks.length} tasks`);
-    logDebug(`[RENDER] Tasks: ${JSON.stringify(tasks)}`);
+    Logger.info(`[RENDER] renderTasks called with ${tasks.length} tasks`);
+    Logger.debug(`[RENDER] Tasks: ${JSON.stringify(tasks)}`);
     
     // This view only renders the current filtered task slice and rebuilds it on
     // explicit reload/file-change events. For the expected small task counts and
@@ -1244,10 +1355,10 @@ class MainWindowController {
       removedCount++;
       child = next;
     }
-    logDebug(`[RENDER] Removed ${removedCount} existing rows`);
+    Logger.debug(`[RENDER] Removed ${removedCount} existing rows`);
 
     for (const task of [...tasks].reverse()) {
-      logDebug(`[RENDER] Creating row for task: ${task.name}`);
+      Logger.debug(`[RENDER] Creating row for task: ${task.name}`);
       const row = this.rowFactory.create(
         task,
         (taskId, nextState) => {
@@ -1258,9 +1369,9 @@ class MainWindowController {
         },
       );
       this.ui.taskList.append(row);
-      logDebug(`[RENDER] Appended row for task: ${task.name}`);
+      Logger.debug(`[RENDER] Appended row for task: ${task.name}`);
     }
-    logInfo(`[RENDER] Finished rendering ${tasks.length} tasks`);
+    Logger.info(`[RENDER] Finished rendering ${tasks.length} tasks`);
   }
 
   private setBusy(isBusy: boolean, message: string): void {
@@ -1279,8 +1390,7 @@ class MainWindowController {
   }
 
   private showError(error: unknown): void {
-    const message = error instanceof Error ? error.message : String(error);
-    this.setStatus(`error: ${message}`);
+    Logger.showError(this.ui.statusLabel, "Operation failed", error);
   }
 
   close(): void {
@@ -1289,8 +1399,9 @@ class MainWindowController {
 }
 
 const MinitaskApplication = GObject.registerClass(
-  class MinitaskApplication extends Gtk.Application {
+class MinitaskApplication extends Gtk.Application {
     private controller: MainWindowController | null = null;
+    private mcpConnection: McpConnection | null = null;
 
     constructor() {
       super({
@@ -1357,7 +1468,7 @@ const MinitaskApplication = GObject.registerClass(
           if (file) {
             const path = file.get_path();
             if (path) {
-              logInfo(`Opening task file: ${path}`);
+              Logger.info(`Opening task file: ${path}`);
               
               // Simply change the task file and reload
               if (this.controller) {
@@ -1379,17 +1490,26 @@ const MinitaskApplication = GObject.registerClass(
       }
     }
 
-    private handleAbout(): void {
+  private handleAbout(): void {
+      const serverInfo = this.mcpConnection?.getServerInfo() || { 
+        name: 'minitask', 
+        version: '0.0.0',
+        description: 'A simple task management tool',
+        authors: 'Unknown',
+        license: 'MIT',
+        repository: '',
+      };
+      
       const aboutDialog = new Gtk.AboutDialog({
         transient_for: this.active_window as GtkApplicationWindow,
         modal: true,
-        program_name: MINITASK_NAME,
-        version: MINITASK_VERSION,
-        comments: MINITASK_DESCRIPTION,
-        website: MINITASK_REPOSITORY,
+        program_name: serverInfo.name,
+        version: serverInfo.version,
+        comments: serverInfo.description,
+        website: serverInfo.repository,
         website_label: "Project Repository",
         license_type: Gtk.License.MIT_X11,
-        authors: MINITASK_AUTHORS.split(',').map(a => a.trim()),
+        authors: serverInfo.authors.split(',').map(a => a.trim()),
       });
       aboutDialog.present();
     }
@@ -1397,6 +1517,7 @@ const MinitaskApplication = GObject.registerClass(
     vfunc_activate(): void {
       const taskFile = requireEnvString("MINITASK_GUI_TASK_FILE");
       const connection = new McpConnection();
+      this.mcpConnection = connection;
       const service = new MinitaskService(connection, taskFile);
       const ui = new MainWindowFactory().create(this);
 
