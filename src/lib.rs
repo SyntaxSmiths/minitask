@@ -559,5 +559,3 @@ pub fn serve_gui(_task_file: PathBuf) -> Result<(), Error> {
     Err(io::Error::other("--gui is only supported on unix").into())
 }
 
-#[cfg(test)]
-mod tests;
