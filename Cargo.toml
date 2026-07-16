@@ -6,7 +6,7 @@ build = "build.rs"
 authors = ["Eddy S."]
 license = "MIT"
 description = "A simple task management tool with MCP server support"
-repository = "https://github.com/fneddy/minitask"
+repository = "https://github.com/SyntaxSmiths/minitask"
 
 [features]
 default = ["gui"]

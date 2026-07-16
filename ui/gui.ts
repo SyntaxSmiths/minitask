@@ -867,7 +867,11 @@ class TaskFileWatcher {
       null,
     );
 
-    this.monitor!.connect("changed", (_monitor, file, _other, eventType) => {
+    if (!this.monitor) {
+      return;
+    }
+
+    this.monitor.connect("changed", (_monitor, file, _other, eventType) => {
       if (!file || file.get_basename() !== this.filename) {
         return;
       }

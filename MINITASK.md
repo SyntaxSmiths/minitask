@@ -12,7 +12,7 @@ A simple, efficient task management CLI tool written in Rust.
 - **Filtering** - Filter tasks by state or epic
 - **Verbose mode** - Detailed task information when needed
 
-## Installation
+## Build
 
 ```bash
 cargo build --release
@@ -223,7 +223,7 @@ The example includes:
 cargo test
 
 # Run integration tests
-./integration_tests.sh
+./tests/integration_tests.sh
 ```
 
 ## Task States
